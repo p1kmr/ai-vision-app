@@ -154,12 +154,14 @@ export default function CameraPage() {
       // Start streaming
       startStreaming(ws, stream);
 
-      // Auto-reconnect before 2-minute limit (at 110 seconds)
+      // Auto-reconnect before session limit
+      // Note: Free tier has 200 requests/day limit. Reconnecting every 8 minutes = ~180 requests/day
+      // This stays safely within free tier limits
       reconnectTimeoutRef.current = setTimeout(() => {
-        console.log('Auto-reconnecting before session limit...');
+        console.log('Auto-reconnecting to maintain session...');
         ws.close();
         connectWebSocket(stream);
-      }, 110000);
+      }, 480000); // 8 minutes (480 seconds) to stay within free tier 200 RPD limit
     };
 
     ws.onmessage = (event) => {
@@ -242,8 +244,9 @@ export default function CameraPage() {
       );
     };
 
-    // Send frames every 500ms for smoother experience
-    frameIntervalRef.current = setInterval(sendFrame, 500);
+    // Send frames every 1000ms (1 second) to reduce token usage
+    // Free tier: 1M tokens/min. Sending less frequently helps stay within limits
+    frameIntervalRef.current = setInterval(sendFrame, 1000);
 
     // Audio capture with MediaRecorder
     const audioTracks = stream.getAudioTracks();
@@ -509,9 +512,9 @@ export default function CameraPage() {
       </div>
 
       {/* Auto-reconnect Notice */}
-      {sessionTime >= 100 && sessionTime < 110 && (
+      {sessionTime >= 470 && sessionTime < 480 && (
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-700 text-gray-100 px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-medium text-sm sm:text-base border border-gray-600">
-          Reconnecting in {110 - sessionTime} seconds...
+          Reconnecting in {480 - sessionTime} seconds...
         </div>
       )}
     </div>

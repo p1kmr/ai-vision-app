@@ -245,13 +245,29 @@ app.prepare().then(() => {
         const reasonStr = reason ? reason.toString() : '';
 
         // Handle quota exceeded error
-        if (code === 1011 || reasonStr.includes('quota')) {
+        if (code === 1011 || reasonStr.includes('quota') || reasonStr.includes('RESOURCE_EXHAUSTED')) {
           console.error('Gemini API quota exceeded. Please check your billing or wait for quota reset.');
           clientWs.send(JSON.stringify({
             error: 'API quota exceeded',
-            text: 'API quota exceeded. Please set up billing in Google AI Studio to increase limits, or wait for daily quota reset.'
+            text: 'API quota exceeded. Free tier limits: 200 requests/day for Gemini 2.0 Flash. Please wait for daily quota reset at midnight Pacific time, or upgrade your plan in Google AI Studio.'
           }));
           // Don't auto-reconnect if quota is exceeded
+          return;
+        }
+
+        // Handle rate limit errors (429)
+        if (code === 1008 || code === 1013 || reasonStr.includes('rate limit') || reasonStr.includes('RATE_LIMIT_EXCEEDED')) {
+          console.error('Gemini API rate limit exceeded. Retrying after delay...');
+          clientWs.send(JSON.stringify({
+            error: 'Rate limit exceeded',
+            text: 'Rate limit exceeded. Free tier: 15 requests/min. Waiting before retry...'
+          }));
+          // Wait 5 seconds before reconnecting on rate limit
+          setTimeout(() => {
+            if (activeConnections.has(connectionId)) {
+              connectToGemini();
+            }
+          }, 5000);
           return;
         }
 
