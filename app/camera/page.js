@@ -419,7 +419,7 @@ export default function CameraPage() {
                     onClick={() => setSelectedModel(model.id)}
                     className={`w-full text-left p-2.5 sm:p-3 rounded-md sm:rounded-lg border transition-all ${
                       selectedModel === model.id
-                        ? 'bg-blue-500/30 border-blue-400/50'
+                        ? 'bg-gray-700/60 border-gray-600'
                         : 'bg-white/5 border-white/10 hover:bg-white/10 active:bg-white/15'
                     }`}
                   >
@@ -428,7 +428,7 @@ export default function CameraPage() {
                         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                           <span className="text-white text-xs sm:text-sm font-medium">{model.name}</span>
                           {model.recommended && (
-                            <span className="px-1.5 py-0.5 bg-green-500/20 border border-green-500/30 rounded text-green-300 text-[10px] sm:text-xs whitespace-nowrap">
+                            <span className="px-1.5 py-0.5 bg-gray-600/50 border border-gray-500/50 rounded text-gray-300 text-[10px] sm:text-xs whitespace-nowrap">
                               Recommended
                             </span>
                           )}
@@ -437,7 +437,7 @@ export default function CameraPage() {
                         <p className="text-white/40 text-[9px] sm:text-xs mt-0.5 sm:mt-1">{model.features}</p>
                       </div>
                       {selectedModel === model.id && (
-                        <span className="text-blue-400 text-xs sm:text-sm font-bold flex-shrink-0">✓</span>
+                        <span className="text-gray-300 text-xs sm:text-sm font-bold flex-shrink-0">✓</span>
                       )}
                     </div>
                   </button>
@@ -472,19 +472,19 @@ export default function CameraPage() {
             <>
               <button
                 onClick={handleStart}
-                className="w-full sm:w-auto px-8 sm:px-10 md:px-12 py-3 sm:py-3.5 md:py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 active:from-blue-800 active:to-purple-800 text-white rounded-full font-semibold text-base sm:text-lg backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 shadow-lg"
+                className="w-full sm:w-auto px-8 sm:px-10 md:px-12 py-3 sm:py-3.5 md:py-4 bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-900 rounded-full font-semibold text-base sm:text-lg backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 shadow-lg"
               >
                 Start AI Vision
               </button>
               <button
                 onClick={handleSwitchToLiveTalk}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-white/10 hover:bg-white/20 active:bg-white/30 text-white rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-white/20"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-gray-600"
               >
                 Switch to Live Talk
               </button>
               <button
                 onClick={handleLogout}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-white/10 hover:bg-white/20 active:bg-white/30 text-white rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-white/20"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-gray-600"
               >
                 Back to Login
               </button>
@@ -493,13 +493,13 @@ export default function CameraPage() {
             <>
               <button
                 onClick={handleStopStreaming}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 bg-orange-500/80 hover:bg-orange-500 active:bg-orange-600 text-white rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-white rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95"
               >
                 Stop Camera & Mic
               </button>
               <button
                 onClick={handleLogout}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 bg-red-500/80 hover:bg-red-500 active:bg-red-600 text-white rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95"
               >
                 Logout
               </button>
@@ -510,7 +510,7 @@ export default function CameraPage() {
 
       {/* Auto-reconnect Notice */}
       {sessionTime >= 100 && sessionTime < 110 && (
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-yellow-500/90 text-black px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-medium text-sm sm:text-base">
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-700 text-gray-100 px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-medium text-sm sm:text-base border border-gray-600">
           Reconnecting in {110 - sessionTime} seconds...
         </div>
       )}
