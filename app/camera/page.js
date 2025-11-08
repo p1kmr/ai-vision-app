@@ -349,6 +349,11 @@ export default function CameraPage() {
     router.push('/');
   };
 
+  const handleSwitchToLiveTalk = () => {
+    cleanup();
+    router.push('/live-talk');
+  };
+
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -462,7 +467,7 @@ export default function CameraPage() {
 
       {/* Bottom Controls */}
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 to-transparent">
-        <div className="flex justify-center gap-4">
+        <div className="flex justify-center gap-4 flex-wrap">
           {!hasStarted ? (
             <>
               <button
@@ -470,6 +475,12 @@ export default function CameraPage() {
                 className="px-12 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-full font-semibold text-lg backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 shadow-lg"
               >
                 Start AI Vision
+              </button>
+              <button
+                onClick={handleSwitchToLiveTalk}
+                className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white rounded-full font-medium backdrop-blur-sm transition-all border border-white/20"
+              >
+                Switch to Live Talk
               </button>
               <button
                 onClick={handleLogout}
