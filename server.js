@@ -58,6 +58,7 @@ app.prepare().then(() => {
     let messageBuffer = [];
     let userSelectedModel = null; // Store user's model selection
     let hasReceivedModelSelection = false;
+    let isAudioOnlyMode = false; // Track if this is audio-only mode
 
     // Helper function to normalize MIME type (remove codec specifications)
     const normalizeMimeType = (mimeType) => {
@@ -169,20 +170,28 @@ app.prepare().then(() => {
             console.log(`Gemini setup complete with model: ${modelAttempts[currentModelIndex]}`);
             isGeminiReady = true;
 
-            // Send initial prompt
+            // Send initial prompt based on mode
+            const initialPrompt = isAudioOnlyMode
+              ? 'You are an AI assistant that can hear through the microphone. Listen to what I say and respond in a conversational, helpful manner. Keep responses clear and concise.'
+              : 'You are an AI assistant that can see through the camera and hear through the microphone. Describe what you observe and respond to any sounds or speech you hear. Keep responses concise and helpful.';
+
             geminiWs.send(JSON.stringify({
               client_content: {
                 turn: {
                   role: 'user',
                   parts: [{
-                    text: 'You are an AI assistant that can see through the camera and hear through the microphone. Describe what you observe and respond to any sounds or speech you hear. Keep responses concise and helpful.'
+                    text: initialPrompt
                   }]
                 }
               }
             }));
 
+            const welcomeMessage = isAudioOnlyMode
+              ? 'AI Audio Active - I can hear you now!'
+              : 'AI Vision Active - I can see and hear you now!';
+
             clientWs.send(JSON.stringify({
-              text: 'AI Vision Active - I can see and hear you now!'
+              text: welcomeMessage
             }));
 
             // Process buffered messages - transform them before sending
@@ -289,16 +298,17 @@ app.prepare().then(() => {
         // Handle model selection message
         if (data.type === 'model_selection' && !hasReceivedModelSelection) {
           userSelectedModel = data.model;
+          isAudioOnlyMode = data.mode === 'audio_only'; // Check if audio-only mode
           hasReceivedModelSelection = true;
-          console.log(`User selected model: ${userSelectedModel}`);
-          
+          console.log(`User selected model: ${userSelectedModel}, mode: ${isAudioOnlyMode ? 'audio-only' : 'vision+audio'}`);
+
           // Add user-selected model to the beginning of the attempts list
           currentModelIndex = 0;
           modelAttempts.unshift(`models/${userSelectedModel}`);
-          
+
           // Now connect to Gemini with the selected model
           connectToGemini();
-          
+
           clientWs.send(JSON.stringify({
             text: `Connecting with ${userSelectedModel}...`
           }));

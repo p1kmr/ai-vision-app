@@ -4,11 +4,24 @@ A mobile-friendly web application where Gemini AI can see through your camera an
 
 ## Features
 
+### **Two Interaction Modes:**
+
+#### 1. **AI Vision Mode** (`/camera`)
 - Real-time camera + microphone streaming
-- AI responses in elegant overlay
+- AI sees and hears simultaneously
+- Visual feedback with video overlay
+
+#### 2. **Live Audio Talk Mode** (`/live-talk`) - NEW!
+- **Audio-only interaction** - No video required
+- Microphone-only streaming for voice conversations
+- Beautiful gradient UI with rich text responses
+- Perfect for hands-free AI conversations
+
+### **Core Features:**
 - **Model Selection** - Choose from multiple Gemini models before starting
 - **Start Button** - Full control over when to begin the AI session
 - **Stop Camera & Mic** - Instantly stop streaming and return to model selection (without logging out)
+- **Mode Switching** - Easily switch between Vision and Live Talk modes
 - **Separate Logout** - Option to logout when done
 - **Automatic Model Fallback** - Server tries multiple models if one fails
 - Works on Mobile & Desktop Chrome
@@ -47,20 +60,37 @@ The app will be available at [http://localhost:3000](http://localhost:3000)
 
 ## Usage
 
+### **Option 1: AI Vision Mode**
 1. Open the app in your browser
 2. Login with the credentials you set in `.env.local`
-3. **Select your preferred AI Model:**
+3. You'll land on the AI Vision page (`/camera`)
+4. **Select your preferred AI Model:**
    - Choose from the displayed model options:
      - **Gemini 2.0 Flash (Experimental)** - Recommended for real-time vision + audio
      - **Gemini 1.5 Flash (Experimental)** - Stable experimental model
      - **Gemini 1.5 Pro (Experimental)** - Advanced reasoning capabilities
-     - **Gemini 2.0 Flash (Versioned)** - Stable but may have limited availability
-4. **Click "Start AI Vision"** button to begin
-5. Allow camera and microphone permissions when prompted
-6. The AI will start observing and responding to what it sees and hears
-7. **Control your session:**
+5. **Click "Start AI Vision"** button to begin
+6. Allow camera and microphone permissions when prompted
+7. The AI will start observing and responding to what it sees and hears
+8. **Control your session:**
    - Click **"Stop Camera & Mic"** to instantly stop all streaming and return to model selection (stay logged in)
+   - Click **"Switch to Live Talk"** to switch to audio-only mode
    - Click **"Logout"** to completely logout and return to login page
+
+### **Option 2: Live Audio Talk Mode** (NEW!)
+1. From the Vision page, click **"Switch to Live Talk"** button
+2. Or navigate directly to `/live-talk` after logging in
+3. **Select your preferred AI Model** for audio conversation:
+   - **Gemini 2.0 Flash (Experimental)** - Recommended for real-time audio
+   - **Gemini 1.5 Flash (Experimental)** - Stable option
+   - **Gemini 1.5 Pro (Experimental)** - Advanced reasoning
+4. **Click "Start Live Talk"** button to begin
+5. Allow microphone permission when prompted (no camera needed!)
+6. Start talking - AI will respond with text in the beautiful overlay
+7. **Control your session:**
+   - Click **"Stop Audio"** to stop microphone and return to model selection
+   - Click **"Switch to Vision"** to switch to camera + audio mode
+   - Click **"Logout"** to completely logout
 
 ## Important Notes
 
@@ -89,13 +119,15 @@ The app will be available at [http://localhost:3000](http://localhost:3000)
 ```
 ai-vision-app/
 ├── .env.local                 # Environment variables (not in git)
-├── server.js                  # Custom WebSocket server
+├── server.js                  # Custom WebSocket server (handles both modes)
 ├── app/
 │   ├── layout.js             # Root layout
 │   ├── page.js               # Login page
 │   ├── globals.css           # Global styles
 │   ├── camera/
-│   │   └── page.js           # Main camera interface with model selection
+│   │   └── page.js           # AI Vision mode (camera + microphone)
+│   ├── live-talk/
+│   │   └── page.js           # Live Audio Talk mode (microphone only)
 │   └── api/
 │       └── auth/
 │           └── route.js      # Authentication endpoint
@@ -142,7 +174,19 @@ For production deployment, consider platforms that support WebSocket connections
 - Check browser console for any errors
 - Try refreshing the page if media tracks don't stop
 
+### Live Audio Talk Mode Issues
+- Ensure microphone permission is granted in browser settings
+- Check that you're on HTTPS in production (required for mic access)
+- Verify the correct model is selected for audio interaction
+- If no response, check browser console for WebSocket errors
+
 ## Key Implementation Details
+
+### Dual Mode Architecture
+- **Vision Mode**: Sends both video frames and audio chunks to Gemini API
+- **Audio-Only Mode**: Sends only audio chunks (no video frames)
+- Server detects mode via `mode: 'audio_only'` flag in model selection message
+- Different AI prompts are used based on the selected mode
 
 ### Model Selection Flow
 1. User selects model from dropdown before starting
