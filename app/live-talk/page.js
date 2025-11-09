@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { PCM16AudioCapture } from '../lib/audio-capture';
+import { PCM16AudioPlayer } from '../lib/audio-player';
 
 export default function LiveTalkPage() {
   const router = useRouter();
@@ -9,11 +11,20 @@ export default function LiveTalkPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState('');
   const [sessionTime, setSessionTime] = useState(0);
+  const [selectedProvider, setSelectedProvider] = useState('gemini');
   const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
   const [hasStarted, setHasStarted] = useState(false);
+  const [userTranscription, setUserTranscription] = useState(''); // Store user's spoken words
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false); // Track if user is speaking (OpenAI VAD)
 
-  // Available models for audio interaction
-  const availableModels = [
+  // Available AI providers
+  const availableProviders = [
+    { id: 'gemini', name: 'Google Gemini', description: 'Gemini Realtime API' },
+    { id: 'openai', name: 'OpenAI', description: 'OpenAI Realtime API' }
+  ];
+
+  // Available models for Gemini
+  const geminiModels = [
     {
       id: 'gemini-2.0-flash-exp',
       name: 'Gemini 2.0 Flash (Experimental)',
@@ -37,11 +48,34 @@ export default function LiveTalkPage() {
     }
   ];
 
+  // Available models for OpenAI
+  const openaiModels = [
+    {
+      id: 'gpt-4o-realtime-preview-2024-10-01',
+      name: 'GPT-4o Realtime',
+      description: 'Production-ready realtime audio model',
+      features: 'Speech-to-speech, audio transcription',
+      recommended: true
+    },
+    {
+      id: 'gpt-4o-mini-realtime-preview-2024-12-17',
+      name: 'GPT-4o Mini Realtime',
+      description: 'Lighter & cheaper realtime model',
+      features: 'Fast audio processing, cost-effective',
+      recommended: false
+    }
+  ];
+
+  // Get current available models based on provider
+  const availableModels = selectedProvider === 'openai' ? openaiModels : geminiModels;
+
   const wsRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const sessionTimerRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const pcm16CaptureRef = useRef(null); // For OpenAI PCM16 audio capture
+  const audioPlayerRef = useRef(null); // For OpenAI audio playback
 
   // Check authentication
   useEffect(() => {
@@ -56,6 +90,14 @@ export default function LiveTalkPage() {
     if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
+    }
+    if (pcm16CaptureRef.current) {
+      pcm16CaptureRef.current.stop();
+      pcm16CaptureRef.current = null;
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.close();
+      audioPlayerRef.current = null;
     }
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.close();
@@ -100,10 +142,12 @@ export default function LiveTalkPage() {
   };
 
   const connectWebSocket = (stream) => {
+    // Determine WebSocket URL based on provider
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/gemini`;
+    const wsEndpoint = selectedProvider === 'openai' ? '/ws/openai' : '/ws/gemini';
+    const wsUrl = `${protocol}//${window.location.host}${wsEndpoint}`;
 
-    console.log('Connecting to WebSocket:', wsUrl);
+    console.log('Connecting to WebSocket:', wsUrl, 'Provider:', selectedProvider);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -139,12 +183,42 @@ export default function LiveTalkPage() {
       }, 480000); // 8 minutes (480 seconds) to stay within free tier 200 RPD limit
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle user speech detection (OpenAI VAD)
+        if (data.type === 'user_speaking_started') {
+          setIsUserSpeaking(true);
+        }
+
+        if (data.type === 'user_speaking_stopped') {
+          setIsUserSpeaking(false);
+        }
+
+        // Handle user transcription (what user said)
+        if (data.type === 'user_transcription' && data.transcription) {
+          setUserTranscription(data.transcription);
+        }
+
+        // Handle AI audio response (OpenAI voice)
+        if (data.type === 'audio_response_delta' && data.audio) {
+          if (!audioPlayerRef.current) {
+            audioPlayerRef.current = new PCM16AudioPlayer();
+            await audioPlayerRef.current.initialize();
+          }
+          audioPlayerRef.current.addChunk(data.audio);
+        }
+
+        if (data.type === 'audio_response_complete') {
+          console.log('AI finished speaking');
+        }
+
+        // Handle AI response text
         if (data.text) {
           setAiResponse(data.text);
         }
+
         if (data.error) {
           setError(data.error);
         }
@@ -177,65 +251,92 @@ export default function LiveTalkPage() {
   const startAudioStreaming = (ws, stream) => {
     const audioTracks = stream.getAudioTracks();
     if (audioTracks.length > 0) {
-      let mimeType = 'audio/webm';
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus';
-      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-        mimeType = 'audio/mp4';
-      }
-
-      try {
-        const audioStream = new MediaStream(audioTracks);
-        const mediaRecorder = new MediaRecorder(audioStream, {
-          mimeType,
-          audioBitsPerSecond: 16000
-        });
-
-        mediaRecorderRef.current = mediaRecorder;
-
-        const audioChunks = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunks.push(event.data);
-          }
-        };
-
-        mediaRecorder.onstop = () => {
-          if (audioChunks.length > 0 && ws.readyState === WebSocket.OPEN) {
-            const audioBlob = new Blob(audioChunks, { type: mimeType });
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64 = reader.result.split(',')[1];
-              ws.send(JSON.stringify({
-                type: 'audio_chunk',
-                data: base64,
-                mimeType: mimeType,
-                timestamp: Date.now()
-              }));
-            };
-            reader.readAsDataURL(audioBlob);
-          }
-          audioChunks.length = 0;
-        };
-
-        // Record in 1-second chunks
-        const recordCycle = () => {
-          if (mediaRecorder.state === 'inactive' && ws.readyState === WebSocket.OPEN) {
-            mediaRecorder.start();
-            setTimeout(() => {
-              if (mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
-                setTimeout(recordCycle, 100);
+      if (selectedProvider === 'openai') {
+        // Use PCM16 audio capture for OpenAI
+        try {
+          pcm16CaptureRef.current = new PCM16AudioCapture(
+            stream,
+            (base64Audio) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'audio_chunk',
+                  data: base64Audio,
+                  format: 'pcm16',
+                  timestamp: Date.now()
+                }));
               }
-            }, 1000);
-          }
-        };
+            },
+            (error) => {
+              console.error('PCM16 capture error:', error);
+              setError('Audio capture failed');
+            }
+          );
+        } catch (err) {
+          console.error('Failed to initialize PCM16 capture:', err);
+          setError('Audio capture initialization failed');
+        }
+      } else {
+        // Use MediaRecorder for Gemini (supports WebM)
+        let mimeType = 'audio/webm';
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        }
 
-        recordCycle();
-      } catch (err) {
-        console.error('Audio recording error:', err);
-        setError('Audio recording failed');
+        try {
+          const audioStream = new MediaStream(audioTracks);
+          const mediaRecorder = new MediaRecorder(audioStream, {
+            mimeType,
+            audioBitsPerSecond: 16000
+          });
+
+          mediaRecorderRef.current = mediaRecorder;
+
+          const audioChunks = [];
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              audioChunks.push(event.data);
+            }
+          };
+
+          mediaRecorder.onstop = () => {
+            if (audioChunks.length > 0 && ws.readyState === WebSocket.OPEN) {
+              const audioBlob = new Blob(audioChunks, { type: mimeType });
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64 = reader.result.split(',')[1];
+                ws.send(JSON.stringify({
+                  type: 'audio_chunk',
+                  data: base64,
+                  mimeType: mimeType,
+                  timestamp: Date.now()
+                }));
+              };
+              reader.readAsDataURL(audioBlob);
+            }
+            audioChunks.length = 0;
+          };
+
+          // Record in 1-second chunks
+          const recordCycle = () => {
+            if (mediaRecorder.state === 'inactive' && ws.readyState === WebSocket.OPEN) {
+              mediaRecorder.start();
+              setTimeout(() => {
+                if (mediaRecorder.state === 'recording') {
+                  mediaRecorder.stop();
+                  setTimeout(recordCycle, 100);
+                }
+              }, 1000);
+            }
+          };
+
+          recordCycle();
+        } catch (err) {
+          console.error('Audio recording error:', err);
+          setError('Audio recording failed');
+        }
       }
     }
   };
@@ -308,12 +409,51 @@ export default function LiveTalkPage() {
                 <span className="text-gray-200 text-xs sm:text-sm font-medium">
                   {isConnected ? 'AI Connected' : 'Connecting...'}
                 </span>
+                {selectedProvider === 'openai' && isUserSpeaking && (
+                  <span className="text-blue-400 text-xs sm:text-sm font-medium flex items-center gap-1">
+                    <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
+                    Speaking...
+                  </span>
+                )}
               </div>
               {isConnected && (
                 <span className="text-gray-400 text-xs sm:text-sm">
                   Session: {formatTime(sessionTime)}
                 </span>
               )}
+            </div>
+          )}
+
+          {/* Provider Selection - Before Start */}
+          {!hasStarted && (
+            <div className="mb-4 sm:mb-6">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <h3 className="text-white text-base sm:text-lg md:text-xl font-semibold">Choose AI Provider</h3>
+              </div>
+              <div className="flex gap-2 sm:gap-3 mb-4">
+                {availableProviders.map((provider) => (
+                  <button
+                    key={provider.id}
+                    onClick={() => {
+                      setSelectedProvider(provider.id);
+                      // Set default model for the provider
+                      if (provider.id === 'openai') {
+                        setSelectedModel('gpt-4o-realtime-preview-2024-10-01');
+                      } else {
+                        setSelectedModel('gemini-2.0-flash-exp');
+                      }
+                    }}
+                    className={`flex-1 p-3 sm:p-4 rounded-lg sm:rounded-xl border transition-all ${
+                      selectedProvider === provider.id
+                        ? 'bg-gray-700/60 border-gray-600 shadow-lg'
+                        : 'bg-gray-800/30 border-gray-700/50 hover:bg-gray-700/40 active:bg-gray-700/50'
+                    }`}
+                  >
+                    <div className="text-white text-sm sm:text-base font-medium">{provider.name}</div>
+                    <div className="text-gray-400 text-xs sm:text-sm mt-0.5">{provider.description}</div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -357,6 +497,18 @@ export default function LiveTalkPage() {
                     </div>
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* User Transcription - Show what user is saying */}
+          {hasStarted && userTranscription && (
+            <div className="mb-4 sm:mb-6">
+              <h3 className="text-blue-300 text-xs sm:text-sm font-medium mb-2 sm:mb-3">YOU SAID:</h3>
+              <div className="bg-blue-500/20 border border-blue-500/50 rounded-xl sm:rounded-2xl p-4 sm:p-6">
+                <p className="text-blue-100 text-sm sm:text-base md:text-lg leading-relaxed whitespace-pre-wrap">
+                  {userTranscription}
+                </p>
               </div>
             </div>
           )}

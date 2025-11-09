@@ -1,6 +1,8 @@
 # AI Vision + Audio Web App
 
-A mobile-friendly web application where Gemini AI can see through your camera and hear through your microphone in real-time, displaying responses in an elegant overlay.
+A mobile-friendly web application where AI can see through your camera and hear through your microphone in real-time, displaying responses in an elegant overlay.
+
+**Supports both Google Gemini and OpenAI Realtime APIs!**
 
 ## Features
 
@@ -18,12 +20,15 @@ A mobile-friendly web application where Gemini AI can see through your camera an
 - Perfect for hands-free AI conversations
 
 ### **Core Features:**
-- **Model Selection** - Choose from multiple Gemini models before starting
+- **Multi-Provider Support** - Choose between Google Gemini or OpenAI
+- **Provider-Specific Models** - See only relevant models for your selected provider
+- **Real-time Transcription** - See what you're saying displayed in the UI overlay
+- **Model Selection** - Choose from multiple AI models before starting
 - **Start Button** - Full control over when to begin the AI session
 - **Stop Camera & Mic** - Instantly stop streaming and return to model selection (without logging out)
 - **Mode Switching** - Easily switch between Vision and Live Talk modes
 - **Separate Logout** - Option to logout when done
-- **Automatic Model Fallback** - Server tries multiple models if one fails
+- **Automatic Model Fallback** - Server tries multiple models if one fails (Gemini)
 - Works on Mobile & Desktop Chrome
 - Simple authentication
 - Auto-reconnect for continuous operation
@@ -32,15 +37,23 @@ A mobile-friendly web application where Gemini AI can see through your camera an
 
 ### 1. Configure Environment Variables
 
-Edit the `.env.local` file and add your credentials:
+Create a `.env.local` file in the root directory and add your credentials:
 
 ```env
-GEMINI_API_KEY=your_actual_gemini_api_key
+# Required - Authentication
 AUTH_USERNAME=admin
 AUTH_PASSWORD=your_secure_password
+
+# AI Provider API Keys (add at least one)
+GEMINI_API_KEY=your_actual_gemini_api_key
+OPENAI_API_KEY=your_actual_openai_api_key
 ```
 
-**Important:** Get your Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
+**Getting API Keys:**
+- **Gemini API Key:** Get it from [Google AI Studio](https://aistudio.google.com/apikey)
+- **OpenAI API Key:** Get it from [OpenAI Platform](https://platform.openai.com/api-keys)
+
+**Note:** You can use either or both providers. If you only want to use one, just add that provider's API key.
 
 ### 2. Install Dependencies
 
@@ -64,30 +77,43 @@ The app will be available at [http://localhost:3000](http://localhost:3000)
 1. Open the app in your browser
 2. Login with the credentials you set in `.env.local`
 3. You'll land on the AI Vision page (`/camera`)
-4. **Select your preferred AI Model:**
-   - Choose from the displayed model options:
+4. **Select your AI Provider:**
+   - Choose between **Google Gemini** or **OpenAI**
+5. **Select your preferred AI Model:**
+   - **For Gemini:**
      - **Gemini 2.0 Flash (Experimental)** - Recommended for real-time vision + audio
      - **Gemini 1.5 Flash (Experimental)** - Stable experimental model
      - **Gemini 1.5 Pro (Experimental)** - Advanced reasoning capabilities
-5. **Click "Start AI Vision"** button to begin
-6. Allow camera and microphone permissions when prompted
-7. The AI will start observing and responding to what it sees and hears
-8. **Control your session:**
+   - **For OpenAI:**
+     - **GPT-4o Realtime** - Production-ready realtime audio (Recommended)
+     - **GPT-4o Mini Realtime** - Lighter & cheaper realtime model
+6. **Click "Start AI Vision"** button to begin
+7. Allow camera and microphone permissions when prompted
+8. The AI will start observing and responding to what it sees and hears
+9. **See your speech in real-time** - Your spoken words will appear in a blue box overlay
+10. **Control your session:**
    - Click **"Stop Camera & Mic"** to instantly stop all streaming and return to model selection (stay logged in)
    - Click **"Switch to Live Talk"** to switch to audio-only mode
    - Click **"Logout"** to completely logout and return to login page
 
-### **Option 2: Live Audio Talk Mode** (NEW!)
+### **Option 2: Live Audio Talk Mode**
 1. From the Vision page, click **"Switch to Live Talk"** button
 2. Or navigate directly to `/live-talk` after logging in
-3. **Select your preferred AI Model** for audio conversation:
-   - **Gemini 2.0 Flash (Experimental)** - Recommended for real-time audio
-   - **Gemini 1.5 Flash (Experimental)** - Stable option
-   - **Gemini 1.5 Pro (Experimental)** - Advanced reasoning
-4. **Click "Start Live Talk"** button to begin
-5. Allow microphone permission when prompted (no camera needed!)
-6. Start talking - AI will respond with text in the beautiful overlay
-7. **Control your session:**
+3. **Select your AI Provider:**
+   - Choose between **Google Gemini** or **OpenAI**
+4. **Select your preferred AI Model** for audio conversation:
+   - **For Gemini:**
+     - **Gemini 2.0 Flash (Experimental)** - Recommended for real-time audio
+     - **Gemini 1.5 Flash (Experimental)** - Stable option
+     - **Gemini 1.5 Pro (Experimental)** - Advanced reasoning
+   - **For OpenAI:**
+     - **GPT-4o Realtime** - Production-ready realtime audio (Recommended)
+     - **GPT-4o Mini Realtime** - Lighter & cheaper realtime model
+5. **Click "Start Live Talk"** button to begin
+6. Allow microphone permission when prompted (no camera needed!)
+7. Start talking - AI will respond with text in the beautiful overlay
+8. **See your speech in real-time** - Your spoken words will appear in a blue section above the AI response
+9. **Control your session:**
    - Click **"Stop Audio"** to stop microphone and return to model selection
    - Click **"Switch to Vision"** to switch to camera + audio mode
    - Click **"Logout"** to completely logout
@@ -102,24 +128,31 @@ The app will be available at [http://localhost:3000](http://localhost:3000)
 ## Tech Stack
 
 - Next.js 15 (App Router)
-- Gemini Realtime API (BidiGenerateContent) with model selection:
-  - `gemini-2.0-flash-exp` (experimental - recommended for real-time)
-  - `gemini-1.5-flash-exp` (stable experimental)
-  - `gemini-1.5-pro-exp` (advanced experimental)
-  - `gemini-2.0-flash-001` (versioned GA)
+- **Dual AI Provider Support:**
+  - **Google Gemini Realtime API** (BidiGenerateContent):
+    - `gemini-2.0-flash-exp` (experimental - recommended for real-time)
+    - `gemini-1.5-flash-exp` (stable experimental)
+    - `gemini-1.5-pro-exp` (advanced experimental)
+    - `gemini-2.0-flash-001` (versioned GA)
+  - **OpenAI Realtime API:**
+    - `gpt-4o-realtime-preview-2024-10-01` (production-ready)
+    - `gpt-4o-mini-realtime-preview-2024-12-17` (lighter/cheaper)
 - WebSockets for real-time streaming
+- OpenAI SDK for OpenAI integration
 - Tailwind CSS for styling
 
-**Important:** The Realtime API (BidiGenerateContent) uses a `v1alpha` endpoint which works best with experimental models. The app includes an in-app model selector for easy switching between supported models and automatic fallback if a model fails.
-
-**Note:** For Live API native audio with enhanced voice features, use model `gemini-live-2.5-flash-preview-native-audio-09-2025` (requires different endpoint configuration).
+**Important Notes:**
+- **Gemini:** The Realtime API (BidiGenerateContent) uses a `v1alpha` endpoint which works best with experimental models. The app includes automatic fallback if a model fails.
+- **OpenAI:** The Realtime API includes automatic speech transcription using Whisper, so you can see what you're saying in real-time.
+- **Transcription:** When using OpenAI, your spoken words are automatically transcribed and displayed in a blue overlay box.
 
 ## Project Structure
 
 ```
 ai-vision-app/
 ├── .env.local                 # Environment variables (not in git)
-├── server.js                  # Custom WebSocket server (handles both modes)
+├── .env.local.example         # Example environment file
+├── server.js                  # Custom WebSocket server (handles Gemini & OpenAI)
 ├── app/
 │   ├── layout.js             # Root layout
 │   ├── page.js               # Login page

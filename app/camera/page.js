@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { PCM16AudioCapture } from '../lib/audio-capture';
+import { PCM16AudioPlayer } from '../lib/audio-player';
 
 export default function CameraPage() {
   const router = useRouter();
@@ -11,13 +13,21 @@ export default function CameraPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState('');
   const [sessionTime, setSessionTime] = useState(0);
+  const [selectedProvider, setSelectedProvider] = useState('gemini');
   const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [hasStarted, setHasStarted] = useState(false); // Track if user has started the session
-  
-  // Available models for Realtime API (BidiGenerateContent)
-  // Based on official Google documentation
-  const availableModels = [
+  const [userTranscription, setUserTranscription] = useState(''); // Store user's spoken words
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false); // Track if user is speaking (OpenAI VAD)
+
+  // Available AI providers
+  const availableProviders = [
+    { id: 'gemini', name: 'Google Gemini', description: 'Gemini Realtime API' },
+    { id: 'openai', name: 'OpenAI', description: 'OpenAI Realtime API' }
+  ];
+
+  // Available models for Gemini
+  const geminiModels = [
     {
       id: 'gemini-2.0-flash-exp',
       name: 'Gemini 2.0 Flash (Experimental)',
@@ -48,12 +58,35 @@ export default function CameraPage() {
     }
   ];
 
+  // Available models for OpenAI
+  const openaiModels = [
+    {
+      id: 'gpt-4o-realtime-preview-2024-10-01',
+      name: 'GPT-4o Realtime',
+      description: 'Production-ready realtime audio model',
+      features: 'Speech-to-speech, audio transcription',
+      recommended: true
+    },
+    {
+      id: 'gpt-4o-mini-realtime-preview-2024-12-17',
+      name: 'GPT-4o Mini Realtime',
+      description: 'Lighter & cheaper realtime model',
+      features: 'Fast audio processing, cost-effective',
+      recommended: false
+    }
+  ];
+
+  // Get current available models based on provider
+  const availableModels = selectedProvider === 'openai' ? openaiModels : geminiModels;
+
   const wsRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const frameIntervalRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const sessionTimerRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const pcm16CaptureRef = useRef(null); // For OpenAI PCM16 audio capture
+  const audioPlayerRef = useRef(null); // For OpenAI audio playback
 
   // Check authentication
   useEffect(() => {
@@ -69,6 +102,14 @@ export default function CameraPage() {
     if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
+    }
+    if (pcm16CaptureRef.current) {
+      pcm16CaptureRef.current.stop();
+      pcm16CaptureRef.current = null;
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.close();
+      audioPlayerRef.current = null;
     }
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.close();
@@ -125,11 +166,12 @@ export default function CameraPage() {
   };
 
   const connectWebSocket = (stream) => {
-    // Determine WebSocket URL
+    // Determine WebSocket URL based on provider
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/gemini`;
+    const wsEndpoint = selectedProvider === 'openai' ? '/ws/openai' : '/ws/gemini';
+    const wsUrl = `${protocol}//${window.location.host}${wsEndpoint}`;
 
-    console.log('Connecting to WebSocket:', wsUrl);
+    console.log('Connecting to WebSocket:', wsUrl, 'Provider:', selectedProvider);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -164,12 +206,42 @@ export default function CameraPage() {
       }, 480000); // 8 minutes (480 seconds) to stay within free tier 200 RPD limit
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle user speech detection (OpenAI VAD)
+        if (data.type === 'user_speaking_started') {
+          setIsUserSpeaking(true);
+        }
+
+        if (data.type === 'user_speaking_stopped') {
+          setIsUserSpeaking(false);
+        }
+
+        // Handle user transcription (what user said)
+        if (data.type === 'user_transcription' && data.transcription) {
+          setUserTranscription(data.transcription);
+        }
+
+        // Handle AI audio response (OpenAI voice)
+        if (data.type === 'audio_response_delta' && data.audio) {
+          if (!audioPlayerRef.current) {
+            audioPlayerRef.current = new PCM16AudioPlayer();
+            await audioPlayerRef.current.initialize();
+          }
+          audioPlayerRef.current.addChunk(data.audio);
+        }
+
+        if (data.type === 'audio_response_complete') {
+          console.log('AI finished speaking');
+        }
+
+        // Handle AI response text
         if (data.text) {
           setAiResponse(data.text);
         }
+
         if (data.error) {
           setError(data.error);
         }
@@ -248,73 +320,99 @@ export default function CameraPage() {
     // Free tier: 1M tokens/min. Sending less frequently helps stay within limits
     frameIntervalRef.current = setInterval(sendFrame, 1000);
 
-    // Audio capture with MediaRecorder
+    // Audio capture - different methods for different providers
     const audioTracks = stream.getAudioTracks();
     if (audioTracks.length > 0) {
-      // Determine MIME type based on browser support
-      // Gemini 2.0 Flash supports: audio/x-aac, audio/flac, audio/mp3, audio/m4a, 
-      // audio/mpeg, audio/mpga, audio/mp4, audio/ogg, audio/pcm, audio/wav, audio/webm
-      let mimeType = 'audio/webm';
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus';
-      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-        mimeType = 'audio/mp4';
-      }
-      // Note: The codec specification (e.g., ;codecs=opus) may need to be stripped
-      // when sending to API if the API only accepts base MIME types
-
-      try {
-        const audioStream = new MediaStream(audioTracks);
-        const mediaRecorder = new MediaRecorder(audioStream, {
-          mimeType,
-          audioBitsPerSecond: 16000
-        });
-
-        mediaRecorderRef.current = mediaRecorder;
-
-        const audioChunks = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunks.push(event.data);
-          }
-        };
-
-        mediaRecorder.onstop = () => {
-          if (audioChunks.length > 0 && ws.readyState === WebSocket.OPEN) {
-            const audioBlob = new Blob(audioChunks, { type: mimeType });
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64 = reader.result.split(',')[1];
-              ws.send(JSON.stringify({
-                type: 'audio_chunk',
-                data: base64,
-                mimeType: mimeType,
-                timestamp: Date.now()
-              }));
-            };
-            reader.readAsDataURL(audioBlob);
-          }
-          audioChunks.length = 0;
-        };
-
-        // Record in 1-second chunks
-        const recordCycle = () => {
-          if (mediaRecorder.state === 'inactive' && ws.readyState === WebSocket.OPEN) {
-            mediaRecorder.start();
-            setTimeout(() => {
-              if (mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
-                setTimeout(recordCycle, 100);
+      if (selectedProvider === 'openai') {
+        // Use PCM16 audio capture for OpenAI
+        try {
+          pcm16CaptureRef.current = new PCM16AudioCapture(
+            stream,
+            (base64Audio) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'audio_chunk',
+                  data: base64Audio,
+                  format: 'pcm16',
+                  timestamp: Date.now()
+                }));
               }
-            }, 1000);
-          }
-        };
+            },
+            (error) => {
+              console.error('PCM16 capture error:', error);
+              setError('Audio capture failed');
+            }
+          );
+        } catch (err) {
+          console.error('Failed to initialize PCM16 capture:', err);
+          setError('Audio capture initialization failed');
+        }
+      } else {
+        // Use MediaRecorder for Gemini (supports WebM)
+        // Gemini 2.0 Flash supports: audio/x-aac, audio/flac, audio/mp3, audio/m4a,
+        // audio/mpeg, audio/mpga, audio/mp4, audio/ogg, audio/pcm, audio/wav, audio/webm
+        let mimeType = 'audio/webm';
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        }
+        // Note: The codec specification (e.g., ;codecs=opus) may need to be stripped
+        // when sending to API if the API only accepts base MIME types
 
-        recordCycle();
-      } catch (err) {
-        console.error('Audio recording error:', err);
-        setError('Audio recording failed');
+        try {
+          const audioStream = new MediaStream(audioTracks);
+          const mediaRecorder = new MediaRecorder(audioStream, {
+            mimeType,
+            audioBitsPerSecond: 16000
+          });
+
+          mediaRecorderRef.current = mediaRecorder;
+
+          const audioChunks = [];
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              audioChunks.push(event.data);
+            }
+          };
+
+          mediaRecorder.onstop = () => {
+            if (audioChunks.length > 0 && ws.readyState === WebSocket.OPEN) {
+              const audioBlob = new Blob(audioChunks, { type: mimeType });
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64 = reader.result.split(',')[1];
+                ws.send(JSON.stringify({
+                  type: 'audio_chunk',
+                  data: base64,
+                  mimeType: mimeType,
+                  timestamp: Date.now()
+                }));
+              };
+              reader.readAsDataURL(audioBlob);
+            }
+            audioChunks.length = 0;
+          };
+
+          // Record in 1-second chunks
+          const recordCycle = () => {
+            if (mediaRecorder.state === 'inactive' && ws.readyState === WebSocket.OPEN) {
+              mediaRecorder.start();
+              setTimeout(() => {
+                if (mediaRecorder.state === 'recording') {
+                  mediaRecorder.stop();
+                  setTimeout(recordCycle, 100);
+                }
+              }, 1000);
+            }
+          };
+
+          recordCycle();
+        } catch (err) {
+          console.error('Audio recording error:', err);
+          setError('Audio recording failed');
+        }
       }
     }
   };
@@ -388,6 +486,12 @@ export default function CameraPage() {
                 <span className="text-white/80 text-xs sm:text-sm font-medium">
                   {isConnected ? 'AI Connected' : 'Connecting...'}
                 </span>
+                {selectedProvider === 'openai' && isUserSpeaking && (
+                  <span className="text-blue-400 text-xs sm:text-sm font-medium flex items-center gap-1">
+                    <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
+                    Speaking...
+                  </span>
+                )}
               </div>
               {isConnected && (
                 <span className="text-white/60 text-xs sm:text-sm pl-5 sm:pl-0">
@@ -397,15 +501,48 @@ export default function CameraPage() {
             </div>
           )}
 
-          {/* Pre-Start Model Selection */}
+          {/* Pre-Start Setup */}
           {!hasStarted && (
             <div className="mb-2 sm:mb-3">
               <div className="flex items-center justify-between mb-1.5 sm:mb-2">
                 <h3 className="text-white text-base sm:text-lg font-semibold">AI Vision Setup</h3>
               </div>
               <p className="text-white/60 text-xs sm:text-sm mb-2 sm:mb-3">
-                Select your preferred AI model before starting the session
+                Select your AI provider and model before starting
               </p>
+            </div>
+          )}
+
+          {/* Provider Selection - Always visible before start */}
+          {!hasStarted && (
+            <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-black/80 rounded-lg sm:rounded-xl border border-white/20">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <h3 className="text-white text-xs sm:text-sm font-semibold">Choose AI Provider</h3>
+              </div>
+              <div className="flex gap-2 mb-3">
+                {availableProviders.map((provider) => (
+                  <button
+                    key={provider.id}
+                    onClick={() => {
+                      setSelectedProvider(provider.id);
+                      // Set default model for the provider
+                      if (provider.id === 'openai') {
+                        setSelectedModel('gpt-4o-realtime-preview-2024-10-01');
+                      } else {
+                        setSelectedModel('gemini-2.0-flash-exp');
+                      }
+                    }}
+                    className={`flex-1 p-2.5 sm:p-3 rounded-md sm:rounded-lg border transition-all ${
+                      selectedProvider === provider.id
+                        ? 'bg-gray-700/60 border-gray-600'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10 active:bg-white/15'
+                    }`}
+                  >
+                    <div className="text-white text-xs sm:text-sm font-medium">{provider.name}</div>
+                    <div className="text-white/60 text-[10px] sm:text-xs mt-0.5">{provider.description}</div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -448,6 +585,18 @@ export default function CameraPage() {
               </div>
               <p className="text-white/40 text-[10px] sm:text-xs mt-2 sm:mt-3 italic">
                 Note: Experimental models work best with Realtime API
+              </p>
+            </div>
+          )}
+
+          {/* User Transcription - Show what user is saying */}
+          {hasStarted && userTranscription && (
+            <div className="mb-2 sm:mb-3 p-2 sm:p-2.5 bg-blue-500/20 border border-blue-500/50 rounded-md sm:rounded-lg">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-blue-300 text-[10px] sm:text-xs font-semibold">YOU SAID:</span>
+              </div>
+              <p className="text-blue-100 text-xs sm:text-sm leading-relaxed">
+                {userTranscription}
               </p>
             </div>
           )}
