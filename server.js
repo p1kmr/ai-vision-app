@@ -391,7 +391,7 @@ const geminiRateLimiter = new GeminiRateLimiter(
 const openaiRateLimiter = new OpenAIRateLimiter({
   requestsPerMinute: parseInt(process.env.OPENAI_RPM_LIMIT) || 100,
   requestsPerDay: parseInt(process.env.OPENAI_RPD_LIMIT) || 10000,
-  maxCostPerHour: parseFloat(process.env.OPENAI_MAX_COST_HOUR) || 1.0
+  maxCostPerHour: parseFloat(process.env.OPENAI_MAX_COST_HOUR) || 0.30 // Reduced from $1.00 to $0.30 for single user
 });
 
 // Log rate limiter status every 30 seconds
@@ -568,10 +568,10 @@ app.prepare().then(() => {
             model: currentModel,
             generation_config: {
               response_modalities: ['TEXT'], // For Live API native audio, use ['TEXT', 'AUDIO']
-              temperature: 1.0, // Default: 1.0 (range: 0.0-2.0)
+              temperature: 0.7, // Reduced from 1.0 for more focused, shorter responses
               top_p: 0.95, // Default: 0.95 (range: 0.0-1.0)
-              top_k: 64, // Fixed at 64 per documentation
-              max_output_tokens: 8192 // Maximum: 8,192 (default)
+              top_k: 40, // Reduced from 64 for more focused responses (saves quota)
+              max_output_tokens: 2048 // Reduced from 8192 to save free tier quota
             }
           }
         };
@@ -631,10 +631,10 @@ app.prepare().then(() => {
             console.log(`Gemini setup complete with model: ${modelAttempts[currentModelIndex]}`);
             isGeminiReady = true;
 
-            // Send initial prompt based on mode
+            // Send initial prompt based on mode (shortened to save quota)
             const initialPrompt = isAudioOnlyMode
-              ? 'You are an AI assistant that can hear through the microphone. Listen to what I say and respond in a conversational, helpful manner. Keep responses clear and concise.'
-              : 'You are an AI assistant that can see through the camera and hear through the microphone. Describe what you observe and respond to any sounds or speech you hear. Keep responses concise and helpful.';
+              ? 'AI assistant. Listen and respond briefly.'
+              : 'AI that can see and hear. Describe what you see. Respond briefly.';
 
             // Send initial prompt with rate limiting
             geminiRateLimiter.enqueueRequest(
@@ -841,6 +841,20 @@ app.prepare().then(() => {
 
         const status = geminiRateLimiter.getStatus();
 
+        // Warn when approaching daily quota (80% = 1200/1500)
+        const dailyUsagePercent = (status.requestsToday / geminiRateLimiter.requestsPerDay) * 100;
+        if (dailyUsagePercent >= 80 && dailyUsagePercent < 82) {
+          clientWs.send(JSON.stringify({
+            warning: 'quota_warning',
+            text: `⚠️ 80% of daily quota used (${status.requestsToday}/1500). Resets at midnight PT.`
+          }));
+        } else if (dailyUsagePercent >= 90 && dailyUsagePercent < 92) {
+          clientWs.send(JSON.stringify({
+            warning: 'quota_warning',
+            text: `⚠️ 90% of daily quota used (${status.requestsToday}/1500). Nearly exhausted!`
+          }));
+        }
+
         // Inform client if queue is building up
         if (status.queueLength > 5) {
           clientWs.send(JSON.stringify({
@@ -953,7 +967,7 @@ app.prepare().then(() => {
           type: 'session.update',
           session: {
             modalities: ['text', 'audio'],
-            instructions: isAudioOnlyMode ? 'Helpful AI assistant.' : 'Helpful AI that can see and hear.',
+            instructions: 'AI', // Ultra-short to minimize costs (charged per interaction)
             voice: 'alloy',
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
@@ -964,10 +978,10 @@ app.prepare().then(() => {
               type: 'server_vad', // Server-side VAD helps reduce cost by not billing silence
               threshold: 0.5,
               prefix_padding_ms: 300,
-              silence_duration_ms: 500
+              silence_duration_ms: 700 // Increased from 500ms to reduce false triggers
             },
-            temperature: 0.8,
-            max_response_output_tokens: 2048 // Reduced from 4096 to save costs
+            temperature: 0.7, // Reduced from 0.8 for shorter responses
+            max_response_output_tokens: 1024 // Reduced from 2048 to save costs (50% reduction)
           }
         };
 
@@ -1192,8 +1206,23 @@ app.prepare().then(() => {
         return;
       }
 
-      // Check cost limits
+      // Check cost limits and send warnings
       const status = openaiRateLimiter.getStatus();
+      const costPercentage = (status.totalCostThisHour / status.maxCostPerHour) * 100;
+
+      // Send warning at 50% and 80% thresholds
+      if (costPercentage >= 80 && costPercentage < 95) {
+        clientWs.send(JSON.stringify({
+          warning: 'cost_warning',
+          text: `⚠️ 80% of hourly budget used ($${status.totalCostThisHour.toFixed(3)}/$${status.maxCostPerHour})`
+        }));
+      } else if (costPercentage >= 50 && costPercentage < 55) {
+        clientWs.send(JSON.stringify({
+          warning: 'cost_warning',
+          text: `⚠️ 50% of hourly budget used ($${status.totalCostThisHour.toFixed(3)}/$${status.maxCostPerHour})`
+        }));
+      }
+
       if (status.totalCostThisHour >= status.maxCostPerHour) {
         clientWs.send(JSON.stringify({
           error: 'Cost limit reached',
