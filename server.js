@@ -164,18 +164,246 @@ class GeminiRateLimiter {
   }
 }
 
-// Create rate limiter instance
-// For paid tier, increase limits: requestsPerMinute: 60, requestsPerDay: 10000
+// OpenAI Rate Limiter and Cost Tracker
+// Rate limits are tier-based. Free tier has lower limits than paid tiers.
+// Cost optimization: Track usage to prevent runaway costs
+class OpenAIRateLimiter {
+  constructor(options = {}) {
+    // Rate limits (tier-based, adjust based on your tier)
+    this.requestsPerMinute = options.requestsPerMinute || 100; // Conservative default
+    this.requestsPerDay = options.requestsPerDay || 10000;
+
+    // Cost tracking
+    this.maxCostPerHour = options.maxCostPerHour || 1.0; // $1/hour default limit
+    this.audioMinutesThisHour = 0;
+    this.totalCostThisHour = 0;
+    this.hourlyResetTime = Date.now() + 3600000; // Reset every hour
+
+    // Request tracking
+    this.minuteWindow = [];
+    this.dayWindow = [];
+    this.queue = [];
+    this.isProcessing = false;
+    this.backoffDelay = 0;
+    this.consecutiveErrors = 0;
+
+    // Audio session tracking
+    this.activeSessions = new Map(); // Track audio minutes per session
+
+    // Hourly cost reset
+    setInterval(() => {
+      this.resetHourlyCosts();
+    }, 3600000);
+  }
+
+  resetHourlyCosts() {
+    const previousCost = this.totalCostThisHour;
+    const previousMinutes = this.audioMinutesThisHour;
+
+    this.audioMinutesThisHour = 0;
+    this.totalCostThisHour = 0;
+    this.hourlyResetTime = Date.now() + 3600000;
+
+    if (previousCost > 0) {
+      console.log(`[OpenAI Cost] Hourly usage reset. Previous hour: $${previousCost.toFixed(4)}, ${previousMinutes.toFixed(2)} audio minutes`);
+    }
+  }
+
+  // Estimate cost for audio session
+  // gpt-4o-mini-realtime is ~4x cheaper than gpt-4o-realtime
+  estimateAudioCost(audioMinutes, model = 'gpt-4o-mini-realtime-preview-2024-12-17') {
+    const isMini = model.includes('mini');
+
+    // Pricing per minute (approximate)
+    // gpt-4o-realtime: $0.06/min input + $0.24/min output = $0.30/min total
+    // gpt-4o-mini-realtime: ~4x cheaper = $0.075/min total (estimated)
+    const costPerMinute = isMini ? 0.075 : 0.30;
+
+    return audioMinutes * costPerMinute;
+  }
+
+  // Track audio session
+  trackAudioSession(sessionId, durationSeconds) {
+    const minutes = durationSeconds / 60;
+
+    if (!this.activeSessions.has(sessionId)) {
+      this.activeSessions.set(sessionId, { totalMinutes: 0, startTime: Date.now() });
+    }
+
+    const session = this.activeSessions.get(sessionId);
+    session.totalMinutes += minutes;
+    this.audioMinutesThisHour += minutes;
+
+    return session.totalMinutes;
+  }
+
+  // Check if cost limit would be exceeded
+  canAffordAudioSession(estimatedMinutes, model) {
+    const estimatedCost = this.estimateAudioCost(estimatedMinutes, model);
+    const projectedTotal = this.totalCostThisHour + estimatedCost;
+
+    return projectedTotal <= this.maxCostPerHour;
+  }
+
+  // Update total cost (call this when actual costs are known)
+  updateCost(cost) {
+    this.totalCostThisHour += cost;
+  }
+
+  canMakeRequest() {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    const oneDayAgo = now - 86400000;
+
+    this.minuteWindow = this.minuteWindow.filter(t => t > oneMinuteAgo);
+    this.dayWindow = this.dayWindow.filter(t => t > oneDayAgo);
+
+    const withinMinuteLimit = this.minuteWindow.length < this.requestsPerMinute;
+    const withinDayLimit = this.dayWindow.length < this.requestsPerDay;
+    const withinCostLimit = this.totalCostThisHour < this.maxCostPerHour;
+
+    return withinMinuteLimit && withinDayLimit && withinCostLimit && this.backoffDelay === 0;
+  }
+
+  getWaitTime() {
+    if (this.backoffDelay > 0) {
+      return this.backoffDelay;
+    }
+
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+
+    this.minuteWindow = this.minuteWindow.filter(t => t > oneMinuteAgo);
+
+    if (this.minuteWindow.length >= this.requestsPerMinute) {
+      const oldestRequest = Math.min(...this.minuteWindow);
+      return Math.max(0, 60000 - (now - oldestRequest) + 100);
+    }
+
+    return 0;
+  }
+
+  recordRequest() {
+    const now = Date.now();
+    this.minuteWindow.push(now);
+    this.dayWindow.push(now);
+
+    if (this.consecutiveErrors > 0) {
+      console.log('[OpenAI] Rate limit recovered, resetting backoff');
+      this.consecutiveErrors = 0;
+      this.backoffDelay = 0;
+    }
+  }
+
+  handleRateLimitError() {
+    this.consecutiveErrors++;
+    this.backoffDelay = Math.min(32000, Math.pow(2, this.consecutiveErrors) * 1000);
+
+    console.log(`[OpenAI] Rate limit hit! Consecutive errors: ${this.consecutiveErrors}, Backing off for ${this.backoffDelay}ms`);
+
+    setTimeout(() => {
+      console.log('[OpenAI] Backoff period ended, resuming requests');
+      this.backoffDelay = 0;
+      this.processQueue();
+    }, this.backoffDelay);
+  }
+
+  async enqueueRequest(requestFn, errorCallback) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ requestFn, resolve, reject, errorCallback });
+      this.processQueue();
+    });
+  }
+
+  async processQueue() {
+    if (this.isProcessing || this.queue.length === 0) {
+      return;
+    }
+
+    this.isProcessing = true;
+
+    while (this.queue.length > 0) {
+      if (!this.canMakeRequest()) {
+        const waitTime = this.getWaitTime();
+
+        if (waitTime > 0) {
+          console.log(`[OpenAI] Rate limit: waiting ${waitTime}ms before next request (Queue: ${this.queue.length})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+
+        // Cost limit reached
+        if (this.totalCostThisHour >= this.maxCostPerHour) {
+          const minutesUntilReset = Math.ceil((this.hourlyResetTime - Date.now()) / 60000);
+          console.log(`[OpenAI] Cost limit reached ($${this.maxCostPerHour}/hour). Resets in ${minutesUntilReset} minutes.`);
+          await new Promise(resolve => setTimeout(resolve, 60000)); // Wait 1 minute
+          continue;
+        }
+      }
+
+      const { requestFn, resolve, reject, errorCallback } = this.queue.shift();
+
+      try {
+        this.recordRequest();
+        const result = await requestFn();
+        resolve(result);
+      } catch (error) {
+        if (errorCallback) {
+          errorCallback(error);
+        }
+        reject(error);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 50)); // Small delay
+    }
+
+    this.isProcessing = false;
+  }
+
+  getStatus() {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    const oneDayAgo = now - 86400000;
+
+    this.minuteWindow = this.minuteWindow.filter(t => t > oneMinuteAgo);
+    this.dayWindow = this.dayWindow.filter(t => t > oneDayAgo);
+
+    return {
+      requestsLastMinute: this.minuteWindow.length,
+      requestsToday: this.dayWindow.length,
+      queueLength: this.queue.length,
+      backoffDelay: this.backoffDelay,
+      canMakeRequest: this.canMakeRequest(),
+      totalCostThisHour: this.totalCostThisHour,
+      audioMinutesThisHour: this.audioMinutesThisHour,
+      maxCostPerHour: this.maxCostPerHour,
+      minutesUntilCostReset: Math.ceil((this.hourlyResetTime - Date.now()) / 60000)
+    };
+  }
+}
+
+// Create rate limiter instances
 const geminiRateLimiter = new GeminiRateLimiter(
-  parseInt(process.env.GEMINI_RPM_LIMIT) || 15,  // Requests per minute (default: 15 for free tier)
-  parseInt(process.env.GEMINI_RPD_LIMIT) || 1500 // Requests per day (default: 1500 for free tier)
+  parseInt(process.env.GEMINI_RPM_LIMIT) || 15,
+  parseInt(process.env.GEMINI_RPD_LIMIT) || 1500
 );
 
-// Log rate limiter status every 30 seconds for monitoring
+const openaiRateLimiter = new OpenAIRateLimiter({
+  requestsPerMinute: parseInt(process.env.OPENAI_RPM_LIMIT) || 100,
+  requestsPerDay: parseInt(process.env.OPENAI_RPD_LIMIT) || 10000,
+  maxCostPerHour: parseFloat(process.env.OPENAI_MAX_COST_HOUR) || 1.0
+});
+
+// Log rate limiter status every 30 seconds
 setInterval(() => {
-  const status = geminiRateLimiter.getStatus();
-  if (status.requestsLastMinute > 0 || status.queueLength > 0) {
-    console.log(`[Rate Limiter] Requests/min: ${status.requestsLastMinute}/15, Today: ${status.requestsToday}/1500, Queue: ${status.queueLength}, Backoff: ${status.backoffDelay}ms`);
+  const geminiStatus = geminiRateLimiter.getStatus();
+  if (geminiStatus.requestsLastMinute > 0 || geminiStatus.queueLength > 0) {
+    console.log(`[Gemini Rate Limiter] Requests/min: ${geminiStatus.requestsLastMinute}/15, Today: ${geminiStatus.requestsToday}/1500, Queue: ${geminiStatus.queueLength}`);
+  }
+
+  const openaiStatus = openaiRateLimiter.getStatus();
+  if (openaiStatus.requestsLastMinute > 0 || openaiStatus.queueLength > 0 || openaiStatus.totalCostThisHour > 0) {
+    console.log(`[OpenAI Rate Limiter] Requests/min: ${openaiStatus.requestsLastMinute}/${openaiRateLimiter.requestsPerMinute}, Cost: $${openaiStatus.totalCostThisHour.toFixed(4)}/$${openaiStatus.maxCostPerHour}/hour, Audio: ${openaiStatus.audioMinutesThisHour.toFixed(2)}min`);
   }
 }, 30000);
 
@@ -615,10 +843,14 @@ app.prepare().then(() => {
     let hasReceivedModelSelection = false;
     let isAudioOnlyMode = false;
 
-    // Available OpenAI Realtime models
+    // Audio session tracking for cost estimation
+    let sessionStartTime = null;
+    let totalAudioSeconds = 0;
+
+    // Available OpenAI Realtime models (default to cheaper mini model)
     const availableModels = [
-      'gpt-4o-realtime-preview-2024-10-01',
-      'gpt-4o-mini-realtime-preview-2024-12-17'
+      'gpt-4o-mini-realtime-preview-2024-12-17', // Default to cheaper model
+      'gpt-4o-realtime-preview-2024-10-01'
     ];
 
     const connectToOpenAI = () => {
@@ -643,18 +875,29 @@ app.prepare().then(() => {
         }
       });
 
-      openaiWs.on('open', () => {
+      openaiWs.on('open', async () => {
         console.log('Connected to OpenAI Realtime API');
         isOpenAIReady = true;
+        sessionStartTime = Date.now();
 
-        // Configure the session
+        // Check cost limits before starting
+        const status = openaiRateLimiter.getStatus();
+        if (status.totalCostThisHour >= status.maxCostPerHour) {
+          clientWs.send(JSON.stringify({
+            error: 'Cost limit reached',
+            text: `Hourly cost limit reached ($${status.maxCostPerHour}). Resets in ${status.minutesUntilCostReset} minutes.`
+          }));
+          openaiWs.close();
+          return;
+        }
+
+        // Configure the session with minimal system prompt for cost savings
+        // Note: Keep instructions brief - they're charged on every interaction
         const sessionConfig = {
           type: 'session.update',
           session: {
-            modalities: isAudioOnlyMode ? ['text', 'audio'] : ['text', 'audio'],
-            instructions: isAudioOnlyMode
-              ? 'You are a helpful AI assistant. Listen to the user and respond conversationally.'
-              : 'You are a helpful AI assistant that can see and hear. Respond to what you observe and hear.',
+            modalities: ['text', 'audio'],
+            instructions: isAudioOnlyMode ? 'Helpful AI assistant.' : 'Helpful AI that can see and hear.',
             voice: 'alloy',
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
@@ -662,17 +905,29 @@ app.prepare().then(() => {
               model: 'whisper-1'
             },
             turn_detection: {
-              type: 'server_vad',
+              type: 'server_vad', // Server-side VAD helps reduce cost by not billing silence
               threshold: 0.5,
               prefix_padding_ms: 300,
               silence_duration_ms: 500
             },
             temperature: 0.8,
-            max_response_output_tokens: 4096
+            max_response_output_tokens: 2048 // Reduced from 4096 to save costs
           }
         };
 
-        openaiWs.send(JSON.stringify(sessionConfig));
+        // Use rate limiter for session config
+        try {
+          await openaiRateLimiter.enqueueRequest(
+            () => {
+              if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                openaiWs.send(JSON.stringify(sessionConfig));
+              }
+              return Promise.resolve();
+            }
+          );
+        } catch (error) {
+          console.error('[OpenAI] Failed to configure session:', error);
+        }
 
         const welcomeMessage = isAudioOnlyMode
           ? 'OpenAI Audio Active - I can hear you now!'
@@ -827,7 +1082,40 @@ app.prepare().then(() => {
         console.log(`OpenAI connection closed: ${code} - ${reason}`);
         isOpenAIReady = false;
 
-        // Attempt reconnection after 2 seconds
+        // Calculate session cost
+        if (sessionStartTime) {
+          const sessionDuration = (Date.now() - sessionStartTime) / 1000; // seconds
+          const audioMinutes = sessionDuration / 60;
+          const estimatedCost = openaiRateLimiter.estimateAudioCost(audioMinutes, userSelectedModel || availableModels[0]);
+
+          console.log(`[OpenAI] Session ended. Duration: ${sessionDuration.toFixed(1)}s, Estimated cost: $${estimatedCost.toFixed(4)}`);
+
+          // Update rate limiter with estimated cost
+          openaiRateLimiter.updateCost(estimatedCost);
+          openaiRateLimiter.trackAudioSession(connectionId, sessionDuration);
+        }
+
+        // Handle rate limit errors
+        const reasonStr = reason ? reason.toString() : '';
+        if (code === 1008 || reasonStr.includes('rate_limit') || reasonStr.includes('too_many_requests')) {
+          console.error('[OpenAI] Rate limit exceeded. Activating exponential backoff...');
+          openaiRateLimiter.handleRateLimitError();
+
+          const status = openaiRateLimiter.getStatus();
+          clientWs.send(JSON.stringify({
+            error: 'Rate limit exceeded',
+            text: `Rate limit exceeded. Backing off for ${Math.round(status.backoffDelay / 1000)}s... Cost this hour: $${status.totalCostThisHour.toFixed(4)}`
+          }));
+
+          setTimeout(() => {
+            if (activeConnections.has(connectionId)) {
+              connectToOpenAI();
+            }
+          }, status.backoffDelay);
+          return;
+        }
+
+        // Attempt reconnection after 2 seconds for other errors
         setTimeout(() => {
           if (activeConnections.has(connectionId)) {
             connectToOpenAI();
@@ -836,40 +1124,74 @@ app.prepare().then(() => {
       });
     };
 
-    const processClientMessage = (data) => {
+    const processClientMessage = async (data) => {
       if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN || !isOpenAIReady) {
         return;
       }
 
-      if (data.type === 'audio_chunk') {
-        // Send audio to OpenAI
-        // OpenAI expects base64 encoded PCM16 audio
-        openaiWs.send(JSON.stringify({
-          type: 'input_audio_buffer.append',
-          audio: data.data
+      // Check cost limits
+      const status = openaiRateLimiter.getStatus();
+      if (status.totalCostThisHour >= status.maxCostPerHour) {
+        clientWs.send(JSON.stringify({
+          error: 'Cost limit reached',
+          text: `Hourly cost limit ($${status.maxCostPerHour}) reached. Resets in ${status.minutesUntilCostReset}min.`
         }));
-      } else if (data.type === 'video_frame') {
-        // For now, OpenAI Realtime API doesn't support video
-        // We can add vision separately using GPT-4V if needed
-        console.log('Video frames not yet supported with OpenAI Realtime API');
-      } else if (data.type === 'text') {
-        // Send text message
-        openaiWs.send(JSON.stringify({
-          type: 'conversation.item.create',
-          item: {
-            type: 'message',
-            role: 'user',
-            content: [{
-              type: 'input_text',
-              text: data.text
-            }]
-          }
-        }));
+        return;
+      }
 
-        // Trigger response
-        openaiWs.send(JSON.stringify({
-          type: 'response.create'
-        }));
+      if (data.type === 'audio_chunk') {
+        // Track audio duration (approximately 100ms chunks)
+        totalAudioSeconds += 0.1;
+
+        // Send audio to OpenAI with rate limiting
+        try {
+          await openaiRateLimiter.enqueueRequest(
+            () => {
+              if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                openaiWs.send(JSON.stringify({
+                  type: 'input_audio_buffer.append',
+                  audio: data.data
+                }));
+              }
+              return Promise.resolve();
+            }
+          );
+        } catch (error) {
+          console.error('[OpenAI] Failed to send audio chunk:', error);
+        }
+      } else if (data.type === 'video_frame') {
+        // OpenAI Realtime API doesn't support video yet
+        console.log('[OpenAI] Video frames not yet supported with Realtime API');
+      } else if (data.type === 'text') {
+        // Send text message with rate limiting
+        try {
+          await openaiRateLimiter.enqueueRequest(
+            async () => {
+              if (openaiWs && openaiWs.readyState === WebSocket.OPEN) {
+                openaiWs.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: {
+                    type: 'message',
+                    role: 'user',
+                    content: [{
+                      type: 'input_text',
+                      text: data.text
+                    }]
+                  }
+                }));
+
+                // Trigger response
+                await new Promise(resolve => setTimeout(resolve, 50));
+                openaiWs.send(JSON.stringify({
+                  type: 'response.create'
+                }));
+              }
+              return Promise.resolve();
+            }
+          );
+        } catch (error) {
+          console.error('[OpenAI] Failed to send text message:', error);
+        }
       }
     };
 
@@ -914,6 +1236,15 @@ app.prepare().then(() => {
     // Handle client disconnect
     clientWs.on('close', () => {
       console.log(`OpenAI client disconnected: ${connectionId}`);
+
+      // Log session stats
+      if (sessionStartTime) {
+        const sessionDuration = (Date.now() - sessionStartTime) / 1000;
+        const audioMinutes = sessionDuration / 60;
+        const estimatedCost = openaiRateLimiter.estimateAudioCost(audioMinutes, userSelectedModel || availableModels[0]);
+
+        console.log(`[OpenAI] Client session stats: Duration: ${sessionDuration.toFixed(1)}s, Audio: ${totalAudioSeconds.toFixed(1)}s, Est. cost: $${estimatedCost.toFixed(4)}`);
+      }
 
       if (openaiWs) {
         openaiWs.close();
