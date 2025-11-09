@@ -466,9 +466,27 @@ app.prepare().then(() => {
       return mimeType.split(';')[0].trim();
     };
 
-    // Helper function to transform client messages to Gemini format
+    // Helper function to transform client messages to Gemini format with validation
     const transformMessageForGemini = (data) => {
+      // Validate message structure
+      if (!data || !data.type) {
+        console.error('[Gemini] Invalid message: missing type');
+        return null;
+      }
+
       if (data.type === 'video_frame') {
+        // Validate video frame data
+        if (!data.data || typeof data.data !== 'string') {
+          console.error('[Gemini] Invalid video frame: missing or invalid data');
+          return null;
+        }
+
+        // Validate audio-only mode doesn't send video
+        if (isAudioOnlyMode) {
+          console.warn('[Gemini] Video frame received in audio-only mode, ignoring');
+          return null;
+        }
+
         return {
           realtime_input: {
             media_chunks: [{
@@ -478,20 +496,48 @@ app.prepare().then(() => {
           }
         };
       } else if (data.type === 'audio_chunk') {
+        // Validate audio chunk data
+        if (!data.data || typeof data.data !== 'string') {
+          console.error('[Gemini] Invalid audio chunk: missing or invalid data');
+          return null;
+        }
+
         // Supported audio MIME types for Gemini 2.0 Flash:
-        // audio/x-aac, audio/flac, audio/mp3, audio/m4a, audio/mpeg, 
+        // audio/x-aac, audio/flac, audio/mp3, audio/m4a, audio/mpeg,
         // audio/mpga, audio/mp4, audio/ogg, audio/pcm, audio/wav, audio/webm
-        // Note: For Live API native audio (gemini-live-2.5-flash-preview-native-audio-09-2025),
-        // use Raw 16-bit PCM audio at 16kHz, little-endian
+        const mimeType = normalizeMimeType(data.mimeType);
+        const supportedTypes = ['audio/webm', 'audio/wav', 'audio/ogg', 'audio/mp3', 'audio/mpeg', 'audio/pcm'];
+
+        if (!supportedTypes.includes(mimeType)) {
+          console.warn(`[Gemini] Unsupported audio MIME type: ${mimeType}, using default`);
+        }
+
         return {
           realtime_input: {
             media_chunks: [{
-              mime_type: normalizeMimeType(data.mimeType),
+              mime_type: mimeType,
               data: data.data
             }]
           }
         };
       } else if (data.type === 'text') {
+        // Validate text message
+        if (!data.text || typeof data.text !== 'string') {
+          console.error('[Gemini] Invalid text message: missing or invalid text');
+          return null;
+        }
+
+        // Check text length (Gemini has token limits)
+        if (data.text.length === 0) {
+          console.warn('[Gemini] Empty text message, ignoring');
+          return null;
+        }
+
+        if (data.text.length > 100000) {
+          console.warn('[Gemini] Text message too long, truncating to 100k chars');
+          data.text = data.text.substring(0, 100000);
+        }
+
         return {
           client_content: {
             turn: {
@@ -501,6 +547,9 @@ app.prepare().then(() => {
           }
         };
       }
+
+      // Unknown message type
+      console.warn(`[Gemini] Unknown message type: ${data.type}`);
       return null;
     };
 
@@ -781,31 +830,38 @@ app.prepare().then(() => {
 
         // Transform and send message to Gemini with rate limiting
         const geminiMessage = transformMessageForGemini(data);
-        if (geminiMessage) {
-          const status = geminiRateLimiter.getStatus();
-
-          // Inform client if queue is building up
-          if (status.queueLength > 5) {
-            clientWs.send(JSON.stringify({
-              text: `Processing... (Queue: ${status.queueLength}, Rate: ${status.requestsLastMinute}/15 per min)`
-            }));
-          }
-
-          geminiRateLimiter.enqueueRequest(
-            () => {
-              if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
-                geminiWs.send(JSON.stringify(geminiMessage));
-              }
-              return Promise.resolve();
-            }
-          ).catch(error => {
-            console.error('Failed to send message:', error);
-            clientWs.send(JSON.stringify({
-              error: 'Failed to send message',
-              text: 'Message delivery failed. Please try again.'
-            }));
-          });
+        if (!geminiMessage) {
+          // Validation failed - notify client
+          clientWs.send(JSON.stringify({
+            error: 'Invalid message',
+            text: `Message type '${data.type}' validation failed. Check console for details.`
+          }));
+          return;
         }
+
+        const status = geminiRateLimiter.getStatus();
+
+        // Inform client if queue is building up
+        if (status.queueLength > 5) {
+          clientWs.send(JSON.stringify({
+            text: `Processing... (Queue: ${status.queueLength}, Rate: ${status.requestsLastMinute}/15 per min)`
+          }));
+        }
+
+        geminiRateLimiter.enqueueRequest(
+          () => {
+            if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+              geminiWs.send(JSON.stringify(geminiMessage));
+            }
+            return Promise.resolve();
+          }
+        ).catch(error => {
+          console.error('Failed to send message:', error);
+          clientWs.send(JSON.stringify({
+            error: 'Failed to send message',
+            text: 'Message delivery failed. Please try again.'
+          }));
+        });
       } catch (err) {
         console.error('Error processing client message:', err);
         clientWs.send(JSON.stringify({
@@ -937,13 +993,20 @@ app.prepare().then(() => {
           text: welcomeMessage
         }));
 
-        // Process buffered messages
-        messageBuffer.forEach(clientData => {
-          if (isOpenAIReady) {
-            processClientMessage(clientData);
+        // Process buffered messages with proper async handling
+        const processBuffer = async () => {
+          for (const clientData of messageBuffer) {
+            if (isOpenAIReady) {
+              try {
+                await processClientMessage(clientData);
+              } catch (error) {
+                console.error('[OpenAI] Failed to process buffered message:', error);
+              }
+            }
           }
-        });
-        messageBuffer = [];
+          messageBuffer = [];
+        };
+        processBuffer();
       });
 
       openaiWs.on('message', (data) => {
@@ -1196,7 +1259,7 @@ app.prepare().then(() => {
     };
 
     // Handle client messages
-    clientWs.on('message', (message) => {
+    clientWs.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
 
@@ -1223,8 +1286,8 @@ app.prepare().then(() => {
           return;
         }
 
-        // Process message
-        processClientMessage(data);
+        // Process message with proper async handling
+        await processClientMessage(data);
       } catch (err) {
         console.error('Error processing client message:', err);
         clientWs.send(JSON.stringify({

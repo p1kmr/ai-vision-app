@@ -185,7 +185,8 @@ export default function CameraPage() {
       // Send model selection to server
       ws.send(JSON.stringify({
         type: 'model_selection',
-        model: selectedModel
+        model: selectedModel,
+        mode: 'vision+audio'  // Camera mode includes both video and audio
       }));
 
       // Start session timer
@@ -278,6 +279,9 @@ export default function CameraPage() {
 
     const sendFrame = () => {
       if (!videoRef.current || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+      // OpenAI Realtime API doesn't support video - only send to Gemini
+      if (selectedProvider === 'openai') return;
 
       const video = videoRef.current;
       if (video.readyState !== 4) return; // Video not ready
