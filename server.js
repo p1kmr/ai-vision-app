@@ -480,6 +480,42 @@ app.prepare().then(() => {
               console.log('Conversation item created');
               break;
 
+            case 'input_audio_buffer.speech_started':
+              // User started speaking (detected by server VAD)
+              clientWs.send(JSON.stringify({
+                type: 'user_speaking_started'
+              }));
+              break;
+
+            case 'input_audio_buffer.speech_stopped':
+              // User stopped speaking
+              clientWs.send(JSON.stringify({
+                type: 'user_speaking_stopped'
+              }));
+              break;
+
+            case 'input_audio_buffer.committed':
+              // Audio buffer committed for processing
+              console.log('Audio buffer committed');
+              break;
+
+            case 'response.audio.delta':
+              // AI's voice response (PCM16 audio chunks)
+              if (event.delta) {
+                clientWs.send(JSON.stringify({
+                  type: 'audio_response_delta',
+                  audio: event.delta
+                }));
+              }
+              break;
+
+            case 'response.audio.done':
+              // AI finished speaking
+              clientWs.send(JSON.stringify({
+                type: 'audio_response_complete'
+              }));
+              break;
+
             case 'response.audio_transcript.delta':
               // AI's spoken response transcription
               if (event.delta) {

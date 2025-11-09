@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { PCM16AudioCapture } from '../lib/audio-capture';
+import { PCM16AudioPlayer } from '../lib/audio-player';
 
 export default function LiveTalkPage() {
   const router = useRouter();
@@ -13,6 +15,7 @@ export default function LiveTalkPage() {
   const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
   const [hasStarted, setHasStarted] = useState(false);
   const [userTranscription, setUserTranscription] = useState(''); // Store user's spoken words
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false); // Track if user is speaking (OpenAI VAD)
 
   // Available AI providers
   const availableProviders = [
@@ -71,6 +74,8 @@ export default function LiveTalkPage() {
   const mediaRecorderRef = useRef(null);
   const sessionTimerRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const pcm16CaptureRef = useRef(null); // For OpenAI PCM16 audio capture
+  const audioPlayerRef = useRef(null); // For OpenAI audio playback
 
   // Check authentication
   useEffect(() => {
@@ -85,6 +90,14 @@ export default function LiveTalkPage() {
     if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
+    }
+    if (pcm16CaptureRef.current) {
+      pcm16CaptureRef.current.stop();
+      pcm16CaptureRef.current = null;
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.close();
+      audioPlayerRef.current = null;
     }
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.close();
@@ -170,16 +183,38 @@ export default function LiveTalkPage() {
       }, 480000); // 8 minutes (480 seconds) to stay within free tier 200 RPD limit
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle user speech detection (OpenAI VAD)
+        if (data.type === 'user_speaking_started') {
+          setIsUserSpeaking(true);
+        }
+
+        if (data.type === 'user_speaking_stopped') {
+          setIsUserSpeaking(false);
+        }
 
         // Handle user transcription (what user said)
         if (data.type === 'user_transcription' && data.transcription) {
           setUserTranscription(data.transcription);
         }
 
-        // Handle AI response
+        // Handle AI audio response (OpenAI voice)
+        if (data.type === 'audio_response_delta' && data.audio) {
+          if (!audioPlayerRef.current) {
+            audioPlayerRef.current = new PCM16AudioPlayer();
+            await audioPlayerRef.current.initialize();
+          }
+          audioPlayerRef.current.addChunk(data.audio);
+        }
+
+        if (data.type === 'audio_response_complete') {
+          console.log('AI finished speaking');
+        }
+
+        // Handle AI response text
         if (data.text) {
           setAiResponse(data.text);
         }
@@ -216,65 +251,92 @@ export default function LiveTalkPage() {
   const startAudioStreaming = (ws, stream) => {
     const audioTracks = stream.getAudioTracks();
     if (audioTracks.length > 0) {
-      let mimeType = 'audio/webm';
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus';
-      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-        mimeType = 'audio/mp4';
-      }
-
-      try {
-        const audioStream = new MediaStream(audioTracks);
-        const mediaRecorder = new MediaRecorder(audioStream, {
-          mimeType,
-          audioBitsPerSecond: 16000
-        });
-
-        mediaRecorderRef.current = mediaRecorder;
-
-        const audioChunks = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunks.push(event.data);
-          }
-        };
-
-        mediaRecorder.onstop = () => {
-          if (audioChunks.length > 0 && ws.readyState === WebSocket.OPEN) {
-            const audioBlob = new Blob(audioChunks, { type: mimeType });
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64 = reader.result.split(',')[1];
-              ws.send(JSON.stringify({
-                type: 'audio_chunk',
-                data: base64,
-                mimeType: mimeType,
-                timestamp: Date.now()
-              }));
-            };
-            reader.readAsDataURL(audioBlob);
-          }
-          audioChunks.length = 0;
-        };
-
-        // Record in 1-second chunks
-        const recordCycle = () => {
-          if (mediaRecorder.state === 'inactive' && ws.readyState === WebSocket.OPEN) {
-            mediaRecorder.start();
-            setTimeout(() => {
-              if (mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
-                setTimeout(recordCycle, 100);
+      if (selectedProvider === 'openai') {
+        // Use PCM16 audio capture for OpenAI
+        try {
+          pcm16CaptureRef.current = new PCM16AudioCapture(
+            stream,
+            (base64Audio) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'audio_chunk',
+                  data: base64Audio,
+                  format: 'pcm16',
+                  timestamp: Date.now()
+                }));
               }
-            }, 1000);
-          }
-        };
+            },
+            (error) => {
+              console.error('PCM16 capture error:', error);
+              setError('Audio capture failed');
+            }
+          );
+        } catch (err) {
+          console.error('Failed to initialize PCM16 capture:', err);
+          setError('Audio capture initialization failed');
+        }
+      } else {
+        // Use MediaRecorder for Gemini (supports WebM)
+        let mimeType = 'audio/webm';
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        }
 
-        recordCycle();
-      } catch (err) {
-        console.error('Audio recording error:', err);
-        setError('Audio recording failed');
+        try {
+          const audioStream = new MediaStream(audioTracks);
+          const mediaRecorder = new MediaRecorder(audioStream, {
+            mimeType,
+            audioBitsPerSecond: 16000
+          });
+
+          mediaRecorderRef.current = mediaRecorder;
+
+          const audioChunks = [];
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              audioChunks.push(event.data);
+            }
+          };
+
+          mediaRecorder.onstop = () => {
+            if (audioChunks.length > 0 && ws.readyState === WebSocket.OPEN) {
+              const audioBlob = new Blob(audioChunks, { type: mimeType });
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64 = reader.result.split(',')[1];
+                ws.send(JSON.stringify({
+                  type: 'audio_chunk',
+                  data: base64,
+                  mimeType: mimeType,
+                  timestamp: Date.now()
+                }));
+              };
+              reader.readAsDataURL(audioBlob);
+            }
+            audioChunks.length = 0;
+          };
+
+          // Record in 1-second chunks
+          const recordCycle = () => {
+            if (mediaRecorder.state === 'inactive' && ws.readyState === WebSocket.OPEN) {
+              mediaRecorder.start();
+              setTimeout(() => {
+                if (mediaRecorder.state === 'recording') {
+                  mediaRecorder.stop();
+                  setTimeout(recordCycle, 100);
+                }
+              }, 1000);
+            }
+          };
+
+          recordCycle();
+        } catch (err) {
+          console.error('Audio recording error:', err);
+          setError('Audio recording failed');
+        }
       }
     }
   };
@@ -347,6 +409,12 @@ export default function LiveTalkPage() {
                 <span className="text-gray-200 text-xs sm:text-sm font-medium">
                   {isConnected ? 'AI Connected' : 'Connecting...'}
                 </span>
+                {selectedProvider === 'openai' && isUserSpeaking && (
+                  <span className="text-blue-400 text-xs sm:text-sm font-medium flex items-center gap-1">
+                    <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
+                    Speaking...
+                  </span>
+                )}
               </div>
               {isConnected && (
                 <span className="text-gray-400 text-xs sm:text-sm">
