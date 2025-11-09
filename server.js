@@ -15,6 +15,170 @@ const handle = app.getRequestHandler();
 // Store active connections
 const activeConnections = new Map();
 
+// Rate limiting for Gemini free tier
+// Free tier limits: 15 requests/minute, 1,500 requests/day, 1M tokens/minute
+class GeminiRateLimiter {
+  constructor(requestsPerMinute = 15, requestsPerDay = 1500) {
+    this.requestsPerMinute = requestsPerMinute;
+    this.requestsPerDay = requestsPerDay;
+    this.minuteWindow = [];
+    this.dayWindow = [];
+    this.queue = [];
+    this.isProcessing = false;
+    this.backoffDelay = 0; // Exponential backoff delay in ms
+    this.consecutiveErrors = 0;
+  }
+
+  // Check if we can make a request now
+  canMakeRequest() {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    const oneDayAgo = now - 86400000;
+
+    // Clean old entries
+    this.minuteWindow = this.minuteWindow.filter(t => t > oneMinuteAgo);
+    this.dayWindow = this.dayWindow.filter(t => t > oneDayAgo);
+
+    // Check limits
+    const withinMinuteLimit = this.minuteWindow.length < this.requestsPerMinute;
+    const withinDayLimit = this.dayWindow.length < this.requestsPerDay;
+
+    return withinMinuteLimit && withinDayLimit && this.backoffDelay === 0;
+  }
+
+  // Get time until next request is allowed (in ms)
+  getWaitTime() {
+    if (this.backoffDelay > 0) {
+      return this.backoffDelay;
+    }
+
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+
+    // Clean old entries
+    this.minuteWindow = this.minuteWindow.filter(t => t > oneMinuteAgo);
+
+    if (this.minuteWindow.length >= this.requestsPerMinute) {
+      // Calculate when the oldest request will age out
+      const oldestRequest = Math.min(...this.minuteWindow);
+      return Math.max(0, 60000 - (now - oldestRequest) + 100); // +100ms buffer
+    }
+
+    return 0;
+  }
+
+  // Record a successful request
+  recordRequest() {
+    const now = Date.now();
+    this.minuteWindow.push(now);
+    this.dayWindow.push(now);
+
+    // Reset backoff on success
+    if (this.consecutiveErrors > 0) {
+      console.log('Rate limit recovered, resetting backoff');
+      this.consecutiveErrors = 0;
+      this.backoffDelay = 0;
+    }
+  }
+
+  // Handle rate limit error
+  handleRateLimitError() {
+    this.consecutiveErrors++;
+
+    // Exponential backoff: 2s, 4s, 8s, 16s, 32s (max)
+    this.backoffDelay = Math.min(32000, Math.pow(2, this.consecutiveErrors) * 1000);
+
+    console.log(`Rate limit hit! Consecutive errors: ${this.consecutiveErrors}, Backing off for ${this.backoffDelay}ms`);
+
+    // Clear backoff after delay
+    setTimeout(() => {
+      console.log('Backoff period ended, resuming requests');
+      this.backoffDelay = 0;
+      this.processQueue();
+    }, this.backoffDelay);
+  }
+
+  // Add request to queue
+  async enqueueRequest(requestFn, errorCallback) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ requestFn, resolve, reject, errorCallback });
+      this.processQueue();
+    });
+  }
+
+  // Process queue with rate limiting
+  async processQueue() {
+    if (this.isProcessing || this.queue.length === 0) {
+      return;
+    }
+
+    this.isProcessing = true;
+
+    while (this.queue.length > 0) {
+      if (!this.canMakeRequest()) {
+        const waitTime = this.getWaitTime();
+
+        if (waitTime > 0) {
+          console.log(`Rate limit: waiting ${waitTime}ms before next request (Queue: ${this.queue.length})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+      }
+
+      const { requestFn, resolve, reject, errorCallback } = this.queue.shift();
+
+      try {
+        this.recordRequest();
+        const result = await requestFn();
+        resolve(result);
+      } catch (error) {
+        if (errorCallback) {
+          errorCallback(error);
+        }
+        reject(error);
+      }
+
+      // Small delay between requests to avoid burst
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    this.isProcessing = false;
+  }
+
+  // Get current status
+  getStatus() {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+    const oneDayAgo = now - 86400000;
+
+    this.minuteWindow = this.minuteWindow.filter(t => t > oneMinuteAgo);
+    this.dayWindow = this.dayWindow.filter(t => t > oneDayAgo);
+
+    return {
+      requestsLastMinute: this.minuteWindow.length,
+      requestsToday: this.dayWindow.length,
+      queueLength: this.queue.length,
+      backoffDelay: this.backoffDelay,
+      canMakeRequest: this.canMakeRequest()
+    };
+  }
+}
+
+// Create rate limiter instance
+// For paid tier, increase limits: requestsPerMinute: 60, requestsPerDay: 10000
+const geminiRateLimiter = new GeminiRateLimiter(
+  parseInt(process.env.GEMINI_RPM_LIMIT) || 15,  // Requests per minute (default: 15 for free tier)
+  parseInt(process.env.GEMINI_RPD_LIMIT) || 1500 // Requests per day (default: 1500 for free tier)
+);
+
+// Log rate limiter status every 30 seconds for monitoring
+setInterval(() => {
+  const status = geminiRateLimiter.getStatus();
+  if (status.requestsLastMinute > 0 || status.queueLength > 0) {
+    console.log(`[Rate Limiter] Requests/min: ${status.requestsLastMinute}/15, Today: ${status.requestsToday}/1500, Queue: ${status.queueLength}, Backoff: ${status.backoffDelay}ms`);
+  }
+}, 30000);
+
 app.prepare().then(() => {
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url, true);
@@ -115,15 +279,13 @@ app.prepare().then(() => {
     const connectToGemini = () => {
       geminiWs = new WebSocket(geminiUrl);
 
-      geminiWs.on('open', () => {
+      geminiWs.on('open', async () => {
         console.log('Connected to Gemini API');
 
-        // Send setup configuration
-        // Note: Realtime API (BidiGenerateContent) uses v1alpha endpoint which may only support experimental models
-        // Try experimental model first, then fallback to versioned GA model
+        // Send setup configuration with rate limiting
         const currentModel = modelAttempts[currentModelIndex];
         console.log(`Attempting to use model: ${currentModel}`);
-        
+
         const setupConfig = {
           setup: {
             model: currentModel,
@@ -137,7 +299,22 @@ app.prepare().then(() => {
           }
         };
 
-        geminiWs.send(JSON.stringify(setupConfig));
+        // Use rate limiter for setup request
+        try {
+          await geminiRateLimiter.enqueueRequest(
+            () => {
+              if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+                geminiWs.send(JSON.stringify(setupConfig));
+              }
+              return Promise.resolve();
+            },
+            (error) => {
+              console.error('Setup request failed:', error);
+            }
+          );
+        } catch (error) {
+          console.error('Rate limiter error during setup:', error);
+        }
       });
 
       geminiWs.on('message', (data) => {
@@ -182,16 +359,26 @@ app.prepare().then(() => {
               ? 'You are an AI assistant that can hear through the microphone. Listen to what I say and respond in a conversational, helpful manner. Keep responses clear and concise.'
               : 'You are an AI assistant that can see through the camera and hear through the microphone. Describe what you observe and respond to any sounds or speech you hear. Keep responses concise and helpful.';
 
-            geminiWs.send(JSON.stringify({
-              client_content: {
-                turn: {
-                  role: 'user',
-                  parts: [{
-                    text: initialPrompt
-                  }]
+            // Send initial prompt with rate limiting
+            geminiRateLimiter.enqueueRequest(
+              () => {
+                if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+                  geminiWs.send(JSON.stringify({
+                    client_content: {
+                      turn: {
+                        role: 'user',
+                        parts: [{
+                          text: initialPrompt
+                        }]
+                      }
+                    }
+                  }));
                 }
+                return Promise.resolve();
               }
-            }));
+            ).catch(error => {
+              console.error('Failed to send initial prompt:', error);
+            });
 
             const welcomeMessage = isAudioOnlyMode
               ? 'AI Audio Active - I can hear you now!'
@@ -201,16 +388,28 @@ app.prepare().then(() => {
               text: welcomeMessage
             }));
 
-            // Process buffered messages - transform them before sending
-            messageBuffer.forEach(clientData => {
-              if (isGeminiReady) {
-                const geminiMessage = transformMessageForGemini(clientData);
-                if (geminiMessage) {
-                  geminiWs.send(JSON.stringify(geminiMessage));
+            // Process buffered messages with rate limiting
+            const processBuffer = async () => {
+              for (const clientData of messageBuffer) {
+                if (isGeminiReady) {
+                  const geminiMessage = transformMessageForGemini(clientData);
+                  if (geminiMessage) {
+                    await geminiRateLimiter.enqueueRequest(
+                      () => {
+                        if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+                          geminiWs.send(JSON.stringify(geminiMessage));
+                        }
+                        return Promise.resolve();
+                      }
+                    ).catch(error => {
+                      console.error('Failed to send buffered message:', error);
+                    });
+                  }
                 }
               }
-            });
-            messageBuffer = [];
+              messageBuffer = [];
+            };
+            processBuffer();
           }
 
           // Handle model responses
@@ -264,17 +463,23 @@ app.prepare().then(() => {
 
         // Handle rate limit errors (429)
         if (code === 1008 || code === 1013 || reasonStr.includes('rate limit') || reasonStr.includes('RATE_LIMIT_EXCEEDED')) {
-          console.error('Gemini API rate limit exceeded. Retrying after delay...');
+          console.error('Gemini API rate limit exceeded. Activating exponential backoff...');
+
+          // Use rate limiter's backoff strategy
+          geminiRateLimiter.handleRateLimitError();
+
+          const status = geminiRateLimiter.getStatus();
           clientWs.send(JSON.stringify({
             error: 'Rate limit exceeded',
-            text: 'Rate limit exceeded. Free tier: 15 requests/min. Waiting before retry...'
+            text: `Rate limit exceeded. Free tier: 15 requests/min. Backing off for ${Math.round(status.backoffDelay / 1000)}s... (Requests this minute: ${status.requestsLastMinute}/15, Today: ${status.requestsToday}/1500)`
           }));
-          // Wait 5 seconds before reconnecting on rate limit
+
+          // Reconnect after backoff period
           setTimeout(() => {
             if (activeConnections.has(connectionId)) {
               connectToGemini();
             }
-          }, 5000);
+          }, status.backoffDelay);
           return;
         }
 
@@ -346,10 +551,32 @@ app.prepare().then(() => {
           return;
         }
 
-        // Transform and send message to Gemini
+        // Transform and send message to Gemini with rate limiting
         const geminiMessage = transformMessageForGemini(data);
         if (geminiMessage) {
-          geminiWs.send(JSON.stringify(geminiMessage));
+          const status = geminiRateLimiter.getStatus();
+
+          // Inform client if queue is building up
+          if (status.queueLength > 5) {
+            clientWs.send(JSON.stringify({
+              text: `Processing... (Queue: ${status.queueLength}, Rate: ${status.requestsLastMinute}/15 per min)`
+            }));
+          }
+
+          geminiRateLimiter.enqueueRequest(
+            () => {
+              if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+                geminiWs.send(JSON.stringify(geminiMessage));
+              }
+              return Promise.resolve();
+            }
+          ).catch(error => {
+            console.error('Failed to send message:', error);
+            clientWs.send(JSON.stringify({
+              error: 'Failed to send message',
+              text: 'Message delivery failed. Please try again.'
+            }));
+          });
         }
       } catch (err) {
         console.error('Error processing client message:', err);
