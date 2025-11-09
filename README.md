@@ -47,6 +47,17 @@ AUTH_PASSWORD=your_secure_password
 # AI Provider API Keys (add at least one)
 GEMINI_API_KEY=your_actual_gemini_api_key
 OPENAI_API_KEY=your_actual_openai_api_key
+
+# Optional - Gemini Rate Limiting (for free tier optimization)
+# Free tier defaults: 15 requests/min, 1500 requests/day
+# Paid tier example: 60 requests/min, 10000 requests/day
+# GEMINI_RPM_LIMIT=15
+# GEMINI_RPD_LIMIT=1500
+
+# Optional - OpenAI Rate Limiting & Cost Control
+# OPENAI_RPM_LIMIT=100         # Requests/min (tier-based)
+# OPENAI_RPD_LIMIT=10000       # Requests/day
+# OPENAI_MAX_COST_HOUR=0.30    # Max cost/hour in USD (default: $0.30 for single user)
 ```
 
 **Getting API Keys:**
@@ -124,6 +135,25 @@ The app will be available at [http://localhost:3000](http://localhost:3000)
 - **API Key Security:** Never commit your `.env.local` file to version control
 - **Session Limits:** The app auto-reconnects every 110 seconds to maintain continuous operation
 - **Model Selection:** The Realtime API works best with experimental models. The app will automatically try fallback models if your selected model fails.
+- **Rate Limiting (Gemini Free Tier):** The app includes intelligent rate limiting optimized for Gemini's free tier:
+  - **15 requests/minute** and **1,500 requests/day** limits
+  - Automatic request queuing to prevent hitting rate limits
+  - Exponential backoff on rate limit errors (2s → 4s → 8s → 16s → 32s)
+  - Real-time status monitoring showing current usage
+  - If you upgrade to a paid tier, adjust `GEMINI_RPM_LIMIT` and `GEMINI_RPD_LIMIT` in `.env.local`
+
+- **Cost Optimization (OpenAI):** Intelligent cost tracking and optimization for OpenAI Realtime API:
+  - **gpt-4o-mini-realtime** set as default model (~75% cheaper than gpt-4o-realtime)
+  - **Hourly cost limits** - Set `OPENAI_MAX_COST_HOUR` to prevent unexpected bills (default: $1/hour)
+  - **Real-time cost tracking** - Monitor costs in server logs every 30 seconds
+  - **Automatic session tracking** - Logs estimated cost per session
+  - **Minimal system prompts** - Reduced from verbose to brief to save on per-request token costs
+  - **Server-side VAD** - Voice Activity Detection prevents billing during silence
+  - **Reduced output tokens** - Limited to 2048 tokens (vs 4096) to save ~50% on output costs
+  - **Pricing comparison**:
+    - gpt-4o-realtime: ~$0.30/minute
+    - gpt-4o-mini-realtime: ~$0.075/minute (**4x cheaper**)
+  - Cost tracking resets every hour with detailed logging
 
 ## Tech Stack
 
@@ -197,6 +227,44 @@ For production deployment, consider platforms that support WebSocket connections
 - Ensure your API key has access to experimental models
 - If all models fail, check your Google AI Studio API quota
 - The server automatically tries fallback models - check console logs
+
+### Rate Limit Errors (Gemini)
+- **"Rate limit exceeded"** message means you've hit the 15 requests/minute limit
+- The app automatically queues requests and retries with exponential backoff
+- Check server console for rate limiter status: `[Rate Limiter] Requests/min: X/15, Today: Y/1500`
+- **Free tier optimizations already applied**:
+  - Max output tokens reduced to 2048 (from 8192) to save quota
+  - Lower temperature (0.7) and top_k (40) for focused responses
+  - Ultra-minimal system prompts to reduce token usage
+  - You'll receive warnings at 80% and 90% of daily quota
+- If you consistently hit rate limits, consider:
+  - Reducing the frequency of video frames being sent
+  - Upgrading to a paid Gemini API tier (60 RPM)
+  - Setting `GEMINI_RPM_LIMIT` and `GEMINI_RPD_LIMIT` in `.env.local` for paid tier
+- Daily quota resets at midnight Pacific time
+
+### OpenAI Cost & Rate Limit Management
+- **Cost limit reached**: If you see "Cost limit reached", you've hit your hourly spending cap
+  - Default limit is $0.30/hour (optimized for single user), adjust with `OPENAI_MAX_COST_HOUR` in `.env.local`
+  - Cost tracking resets every hour automatically
+  - Check server console for: `[OpenAI Rate Limiter] Cost: $X.XX/$0.30/hour`
+- **Cost optimization tips**:
+  - Always use **gpt-4o-mini-realtime** (default) unless you need the full gpt-4o model (~$0.06/min)
+  - You'll receive warnings at 50% and 80% of your hourly budget
+  - Monitor server logs for session costs: `[OpenAI] Session ended. Duration: Xs, Estimated cost: $X.XXXX`
+  - Stop sessions when not in use - costs accumulate continuously while connected
+  - Server-side VAD already enabled to prevent billing during silence
+  - Ultra-minimal system prompts reduce per-request costs
+  - Max output tokens reduced to 1024 for shorter, cheaper responses
+- **Rate limit errors**:
+  - OpenAI rate limits are tier-based (check your tier at platform.openai.com)
+  - The app automatically implements exponential backoff on rate limit errors
+  - Adjust `OPENAI_RPM_LIMIT` based on your account tier
+  - Free tier: Very limited, Tier 1: ~100 RPM, Tier 5: Much higher
+- **Unexpected costs**:
+  - Audio streaming bills by the minute, not by usage
+  - Each session logs estimated cost - review server console regularly
+  - Set `OPENAI_MAX_COST_HOUR=0.50` for tighter control during testing
 
 ### Session Timeout
 - The app automatically reconnects every 110 seconds
