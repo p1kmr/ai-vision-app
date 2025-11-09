@@ -9,11 +9,19 @@ export default function LiveTalkPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState('');
   const [sessionTime, setSessionTime] = useState(0);
+  const [selectedProvider, setSelectedProvider] = useState('gemini');
   const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
   const [hasStarted, setHasStarted] = useState(false);
+  const [userTranscription, setUserTranscription] = useState(''); // Store user's spoken words
 
-  // Available models for audio interaction
-  const availableModels = [
+  // Available AI providers
+  const availableProviders = [
+    { id: 'gemini', name: 'Google Gemini', description: 'Gemini Realtime API' },
+    { id: 'openai', name: 'OpenAI', description: 'OpenAI Realtime API' }
+  ];
+
+  // Available models for Gemini
+  const geminiModels = [
     {
       id: 'gemini-2.0-flash-exp',
       name: 'Gemini 2.0 Flash (Experimental)',
@@ -36,6 +44,27 @@ export default function LiveTalkPage() {
       recommended: false
     }
   ];
+
+  // Available models for OpenAI
+  const openaiModels = [
+    {
+      id: 'gpt-4o-realtime-preview-2024-10-01',
+      name: 'GPT-4o Realtime',
+      description: 'Production-ready realtime audio model',
+      features: 'Speech-to-speech, audio transcription',
+      recommended: true
+    },
+    {
+      id: 'gpt-4o-mini-realtime-preview-2024-12-17',
+      name: 'GPT-4o Mini Realtime',
+      description: 'Lighter & cheaper realtime model',
+      features: 'Fast audio processing, cost-effective',
+      recommended: false
+    }
+  ];
+
+  // Get current available models based on provider
+  const availableModels = selectedProvider === 'openai' ? openaiModels : geminiModels;
 
   const wsRef = useRef(null);
   const mediaStreamRef = useRef(null);
@@ -100,10 +129,12 @@ export default function LiveTalkPage() {
   };
 
   const connectWebSocket = (stream) => {
+    // Determine WebSocket URL based on provider
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/gemini`;
+    const wsEndpoint = selectedProvider === 'openai' ? '/ws/openai' : '/ws/gemini';
+    const wsUrl = `${protocol}//${window.location.host}${wsEndpoint}`;
 
-    console.log('Connecting to WebSocket:', wsUrl);
+    console.log('Connecting to WebSocket:', wsUrl, 'Provider:', selectedProvider);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -142,9 +173,17 @@ export default function LiveTalkPage() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle user transcription (what user said)
+        if (data.type === 'user_transcription' && data.transcription) {
+          setUserTranscription(data.transcription);
+        }
+
+        // Handle AI response
         if (data.text) {
           setAiResponse(data.text);
         }
+
         if (data.error) {
           setError(data.error);
         }
@@ -317,6 +356,39 @@ export default function LiveTalkPage() {
             </div>
           )}
 
+          {/* Provider Selection - Before Start */}
+          {!hasStarted && (
+            <div className="mb-4 sm:mb-6">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <h3 className="text-white text-base sm:text-lg md:text-xl font-semibold">Choose AI Provider</h3>
+              </div>
+              <div className="flex gap-2 sm:gap-3 mb-4">
+                {availableProviders.map((provider) => (
+                  <button
+                    key={provider.id}
+                    onClick={() => {
+                      setSelectedProvider(provider.id);
+                      // Set default model for the provider
+                      if (provider.id === 'openai') {
+                        setSelectedModel('gpt-4o-realtime-preview-2024-10-01');
+                      } else {
+                        setSelectedModel('gemini-2.0-flash-exp');
+                      }
+                    }}
+                    className={`flex-1 p-3 sm:p-4 rounded-lg sm:rounded-xl border transition-all ${
+                      selectedProvider === provider.id
+                        ? 'bg-gray-700/60 border-gray-600 shadow-lg'
+                        : 'bg-gray-800/30 border-gray-700/50 hover:bg-gray-700/40 active:bg-gray-700/50'
+                    }`}
+                  >
+                    <div className="text-white text-sm sm:text-base font-medium">{provider.name}</div>
+                    <div className="text-gray-400 text-xs sm:text-sm mt-0.5">{provider.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Model Selection - Before Start */}
           {!hasStarted && (
             <div className="mb-4 sm:mb-6">
@@ -357,6 +429,18 @@ export default function LiveTalkPage() {
                     </div>
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* User Transcription - Show what user is saying */}
+          {hasStarted && userTranscription && (
+            <div className="mb-4 sm:mb-6">
+              <h3 className="text-blue-300 text-xs sm:text-sm font-medium mb-2 sm:mb-3">YOU SAID:</h3>
+              <div className="bg-blue-500/20 border border-blue-500/50 rounded-xl sm:rounded-2xl p-4 sm:p-6">
+                <p className="text-blue-100 text-sm sm:text-base md:text-lg leading-relaxed whitespace-pre-wrap">
+                  {userTranscription}
+                </p>
               </div>
             </div>
           )}

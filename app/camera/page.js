@@ -11,13 +11,20 @@ export default function CameraPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState('');
   const [sessionTime, setSessionTime] = useState(0);
+  const [selectedProvider, setSelectedProvider] = useState('gemini');
   const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [hasStarted, setHasStarted] = useState(false); // Track if user has started the session
-  
-  // Available models for Realtime API (BidiGenerateContent)
-  // Based on official Google documentation
-  const availableModels = [
+  const [userTranscription, setUserTranscription] = useState(''); // Store user's spoken words
+
+  // Available AI providers
+  const availableProviders = [
+    { id: 'gemini', name: 'Google Gemini', description: 'Gemini Realtime API' },
+    { id: 'openai', name: 'OpenAI', description: 'OpenAI Realtime API' }
+  ];
+
+  // Available models for Gemini
+  const geminiModels = [
     {
       id: 'gemini-2.0-flash-exp',
       name: 'Gemini 2.0 Flash (Experimental)',
@@ -47,6 +54,27 @@ export default function CameraPage() {
       recommended: false
     }
   ];
+
+  // Available models for OpenAI
+  const openaiModels = [
+    {
+      id: 'gpt-4o-realtime-preview-2024-10-01',
+      name: 'GPT-4o Realtime',
+      description: 'Production-ready realtime audio model',
+      features: 'Speech-to-speech, audio transcription',
+      recommended: true
+    },
+    {
+      id: 'gpt-4o-mini-realtime-preview-2024-12-17',
+      name: 'GPT-4o Mini Realtime',
+      description: 'Lighter & cheaper realtime model',
+      features: 'Fast audio processing, cost-effective',
+      recommended: false
+    }
+  ];
+
+  // Get current available models based on provider
+  const availableModels = selectedProvider === 'openai' ? openaiModels : geminiModels;
 
   const wsRef = useRef(null);
   const mediaStreamRef = useRef(null);
@@ -125,11 +153,12 @@ export default function CameraPage() {
   };
 
   const connectWebSocket = (stream) => {
-    // Determine WebSocket URL
+    // Determine WebSocket URL based on provider
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/gemini`;
+    const wsEndpoint = selectedProvider === 'openai' ? '/ws/openai' : '/ws/gemini';
+    const wsUrl = `${protocol}//${window.location.host}${wsEndpoint}`;
 
-    console.log('Connecting to WebSocket:', wsUrl);
+    console.log('Connecting to WebSocket:', wsUrl, 'Provider:', selectedProvider);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -167,9 +196,17 @@ export default function CameraPage() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle user transcription (what user said)
+        if (data.type === 'user_transcription' && data.transcription) {
+          setUserTranscription(data.transcription);
+        }
+
+        // Handle AI response
         if (data.text) {
           setAiResponse(data.text);
         }
+
         if (data.error) {
           setError(data.error);
         }
@@ -397,15 +434,48 @@ export default function CameraPage() {
             </div>
           )}
 
-          {/* Pre-Start Model Selection */}
+          {/* Pre-Start Setup */}
           {!hasStarted && (
             <div className="mb-2 sm:mb-3">
               <div className="flex items-center justify-between mb-1.5 sm:mb-2">
                 <h3 className="text-white text-base sm:text-lg font-semibold">AI Vision Setup</h3>
               </div>
               <p className="text-white/60 text-xs sm:text-sm mb-2 sm:mb-3">
-                Select your preferred AI model before starting the session
+                Select your AI provider and model before starting
               </p>
+            </div>
+          )}
+
+          {/* Provider Selection - Always visible before start */}
+          {!hasStarted && (
+            <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-black/80 rounded-lg sm:rounded-xl border border-white/20">
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <h3 className="text-white text-xs sm:text-sm font-semibold">Choose AI Provider</h3>
+              </div>
+              <div className="flex gap-2 mb-3">
+                {availableProviders.map((provider) => (
+                  <button
+                    key={provider.id}
+                    onClick={() => {
+                      setSelectedProvider(provider.id);
+                      // Set default model for the provider
+                      if (provider.id === 'openai') {
+                        setSelectedModel('gpt-4o-realtime-preview-2024-10-01');
+                      } else {
+                        setSelectedModel('gemini-2.0-flash-exp');
+                      }
+                    }}
+                    className={`flex-1 p-2.5 sm:p-3 rounded-md sm:rounded-lg border transition-all ${
+                      selectedProvider === provider.id
+                        ? 'bg-gray-700/60 border-gray-600'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10 active:bg-white/15'
+                    }`}
+                  >
+                    <div className="text-white text-xs sm:text-sm font-medium">{provider.name}</div>
+                    <div className="text-white/60 text-[10px] sm:text-xs mt-0.5">{provider.description}</div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -448,6 +518,18 @@ export default function CameraPage() {
               </div>
               <p className="text-white/40 text-[10px] sm:text-xs mt-2 sm:mt-3 italic">
                 Note: Experimental models work best with Realtime API
+              </p>
+            </div>
+          )}
+
+          {/* User Transcription - Show what user is saying */}
+          {hasStarted && userTranscription && (
+            <div className="mb-2 sm:mb-3 p-2 sm:p-2.5 bg-blue-500/20 border border-blue-500/50 rounded-md sm:rounded-lg">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-blue-300 text-[10px] sm:text-xs font-semibold">YOU SAID:</span>
+              </div>
+              <p className="text-blue-100 text-xs sm:text-sm leading-relaxed">
+                {userTranscription}
               </p>
             </div>
           )}
