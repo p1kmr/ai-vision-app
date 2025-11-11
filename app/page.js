@@ -2,12 +2,18 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from './contexts/AuthContext';
+import Link from 'next/link';
 
 export default function LoginPage() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
+  const { login, resetPassword } = useAuth();
   const router = useRouter();
 
   const handleLogin = async (e) => {
@@ -16,32 +22,122 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
+      await login(email, password);
+      // Check if user has API keys set up
+      const hasGeminiKey = sessionStorage.getItem('gemini_api_key');
+      const hasOpenAIKey = sessionStorage.getItem('openai_api_key');
 
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        sessionStorage.setItem('authenticated', 'true');
-        router.push('/camera');
+      // Redirect to setup if no API keys, otherwise go to camera
+      if (!hasGeminiKey && !hasOpenAIKey) {
+        router.push('/setup');
       } else {
-        setError(data.error || 'Invalid credentials');
+        router.push('/camera');
       }
     } catch (err) {
-      setError('Connection error. Please try again.');
+      console.error('Login error:', err);
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setError('Invalid email or password');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address');
+      } else if (err.code === 'auth/user-disabled') {
+        setError('This account has been disabled');
+      } else {
+        setError('Login failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setError('');
+    setResetMessage('');
+    setLoading(true);
+
+    try {
+      await resetPassword(resetEmail);
+      setResetMessage('Password reset email sent! Check your inbox.');
+      setResetEmail('');
+      setTimeout(() => {
+        setShowForgotPassword(false);
+        setResetMessage('');
+      }, 3000);
+    } catch (err) {
+      console.error('Reset password error:', err);
+      if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address');
+      } else {
+        setError('Failed to send reset email. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (showForgotPassword) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-black p-4">
+        <div className="w-full max-w-md">
+          <form onSubmit={handleForgotPassword} className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-2xl border border-white/20">
+            <h1 className="text-3xl font-bold mb-2 text-center text-white">Reset Password</h1>
+            <p className="text-white/60 text-center mb-8 text-sm">Enter your email to receive a reset link</p>
+
+            {error && (
+              <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-3 rounded-lg mb-6 text-sm">
+                {error}
+              </div>
+            )}
+
+            {resetMessage && (
+              <div className="bg-green-500/20 border border-green-500/50 text-green-200 p-3 rounded-lg mb-6 text-sm">
+                {resetMessage}
+              </div>
+            )}
+
+            <input
+              type="email"
+              placeholder="Email"
+              value={resetEmail}
+              onChange={(e) => setResetEmail(e.target.value)}
+              className="w-full p-4 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-6"
+              required
+              autoComplete="email"
+            />
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white p-4 rounded-lg font-semibold transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed"
+            >
+              {loading ? 'Sending...' : 'Send Reset Link'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowForgotPassword(false);
+                setError('');
+                setResetMessage('');
+              }}
+              className="w-full mt-4 text-white/60 hover:text-white text-sm"
+            >
+              Back to Login
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-black p-4">
       <div className="w-full max-w-md">
         <form onSubmit={handleLogin} className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-2xl border border-white/20">
-          <h1 className="text-3xl font-bold mb-8 text-center text-white">AI Vision</h1>
+          <h1 className="text-3xl font-bold mb-2 text-center text-white">AI Vision</h1>
+          <p className="text-white/60 text-center mb-8 text-sm">Login to your account</p>
 
           {error && (
             <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-3 rounded-lg mb-6 text-sm">
@@ -49,15 +145,15 @@ export default function LoginPage() {
             </div>
           )}
 
-          <div className="space-y-6">
+          <div className="space-y-4">
             <input
-              type="text"
-              placeholder="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full p-4 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
-              autoComplete="username"
+              autoComplete="email"
             />
 
             <input
@@ -71,13 +167,32 @@ export default function LoginPage() {
             />
           </div>
 
+          <div className="mt-4 text-right">
+            <button
+              type="button"
+              onClick={() => setShowForgotPassword(true)}
+              className="text-blue-400 hover:text-blue-300 text-sm"
+            >
+              Forgot Password?
+            </button>
+          </div>
+
           <button
             type="submit"
             disabled={loading}
-            className="w-full mt-8 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white p-4 rounded-lg font-semibold transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed"
+            className="w-full mt-6 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white p-4 rounded-lg font-semibold transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed"
           >
             {loading ? 'Logging in...' : 'Login'}
           </button>
+
+          <div className="mt-6 text-center">
+            <p className="text-white/60 text-sm">
+              Don&apos;t have an account?{' '}
+              <Link href="/signup" className="text-blue-400 hover:text-blue-300 font-semibold">
+                Sign Up
+              </Link>
+            </p>
+          </div>
         </form>
       </div>
     </div>

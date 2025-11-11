@@ -4,9 +4,13 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { PCM16AudioCapture } from '../lib/audio-capture';
 import { PCM16AudioPlayer } from '../lib/audio-player';
+import ProtectedRoute from '../components/ProtectedRoute';
+import Header from '../components/Header';
+import { useAuth } from '../contexts/AuthContext';
 
-export default function LiveTalkPage() {
+function LiveTalkPageContent() {
   const router = useRouter();
+  const { logout } = useAuth();
   const [aiResponse, setAiResponse] = useState('Select a model and click Start to begin');
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState('');
@@ -76,13 +80,6 @@ export default function LiveTalkPage() {
   const reconnectTimeoutRef = useRef(null);
   const pcm16CaptureRef = useRef(null); // For OpenAI PCM16 audio capture
   const audioPlayerRef = useRef(null); // For OpenAI audio playback
-
-  // Check authentication
-  useEffect(() => {
-    if (typeof window !== 'undefined' && !sessionStorage.getItem('authenticated')) {
-      router.push('/');
-    }
-  }, [router]);
 
   // Cleanup function
   const cleanup = useCallback(() => {
@@ -158,12 +155,25 @@ export default function LiveTalkPage() {
       setAiResponse('AI is listening...');
       setSessionTime(0);
 
-      // Send model selection and audio-only mode to server
-      ws.send(JSON.stringify({
+      // Get API keys from sessionStorage
+      const geminiApiKey = sessionStorage.getItem('gemini_api_key');
+      const openaiApiKey = sessionStorage.getItem('openai_api_key');
+
+      // Send model selection and audio-only mode to server with API key
+      const modelSelection = {
         type: 'model_selection',
         model: selectedModel,
         mode: 'audio_only'
-      }));
+      };
+
+      // Add appropriate API key based on provider
+      if (selectedProvider === 'gemini') {
+        modelSelection.apiKey = geminiApiKey;
+      } else if (selectedProvider === 'openai') {
+        modelSelection.apiKey = openaiApiKey;
+      }
+
+      ws.send(JSON.stringify(modelSelection));
 
       // Start session timer
       sessionTimerRef.current = setInterval(() => {
@@ -359,10 +369,14 @@ export default function LiveTalkPage() {
     setSessionTime(0);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     cleanup();
-    sessionStorage.removeItem('authenticated');
-    router.push('/');
+    try {
+      await logout();
+      router.push('/');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   const handleBackToVision = () => {
@@ -580,5 +594,14 @@ export default function LiveTalkPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function LiveTalkPage() {
+  return (
+    <ProtectedRoute>
+      <Header />
+      <LiveTalkPageContent />
+    </ProtectedRoute>
   );
 }

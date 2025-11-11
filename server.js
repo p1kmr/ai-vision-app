@@ -439,7 +439,7 @@ app.prepare().then(() => {
   wssGemini.on('connection', (clientWs) => {
     const connectionId = Date.now().toString();
     console.log(`Gemini client connected: ${connectionId}`);
-    
+
     // Reset model index for each new connection
     let currentModelIndex = 0;
     const modelAttempts = [
@@ -449,8 +449,9 @@ app.prepare().then(() => {
       'models/gemini-1.5-flash-exp' // Fallback experimental model
     ];
 
-    // Initialize Gemini connection
-    const geminiUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${process.env.GEMINI_API_KEY}`;
+    // Initialize variables - API key will be provided by client
+    let geminiApiKey = null;
+    let geminiUrl = null;
 
     let geminiWs = null;
     let isGeminiReady = false;
@@ -805,6 +806,21 @@ app.prepare().then(() => {
           userSelectedModel = data.model;
           isAudioOnlyMode = data.mode === 'audio_only'; // Check if audio-only mode
           hasReceivedModelSelection = true;
+
+          // Get API key from client or fall back to environment variable
+          geminiApiKey = data.apiKey || process.env.GEMINI_API_KEY;
+
+          if (!geminiApiKey) {
+            clientWs.send(JSON.stringify({
+              error: 'No API key provided',
+              text: 'Please provide a Gemini API key in the setup page or configure GEMINI_API_KEY in environment variables.'
+            }));
+            return;
+          }
+
+          // Build Gemini URL with the provided API key
+          geminiUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${geminiApiKey}`;
+
           console.log(`User selected model: ${userSelectedModel}, mode: ${isAudioOnlyMode ? 'audio-only' : 'vision+audio'}`);
 
           // Add user-selected model to the beginning of the attempts list
@@ -912,6 +928,7 @@ app.prepare().then(() => {
     let userSelectedModel = null;
     let hasReceivedModelSelection = false;
     let isAudioOnlyMode = false;
+    let openaiApiKey = null; // Will be provided by client
 
     // Audio session tracking for cost estimation
     let sessionStartTime = null;
@@ -924,10 +941,10 @@ app.prepare().then(() => {
     ];
 
     const connectToOpenAI = () => {
-      if (!process.env.OPENAI_API_KEY) {
+      if (!openaiApiKey) {
         clientWs.send(JSON.stringify({
           error: 'OpenAI API key not configured',
-          text: 'Please add OPENAI_API_KEY to your .env.local file'
+          text: 'Please provide an OpenAI API key in the setup page or configure OPENAI_API_KEY in environment variables.'
         }));
         return;
       }
@@ -940,7 +957,7 @@ app.prepare().then(() => {
 
       openaiWs = new WebSocket(openaiUrl, {
         headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Authorization': `Bearer ${openaiApiKey}`,
           'OpenAI-Beta': 'realtime=v1'
         }
       });
@@ -1297,6 +1314,18 @@ app.prepare().then(() => {
           userSelectedModel = data.model;
           isAudioOnlyMode = data.mode === 'audio_only';
           hasReceivedModelSelection = true;
+
+          // Get API key from client or fall back to environment variable
+          openaiApiKey = data.apiKey || process.env.OPENAI_API_KEY;
+
+          if (!openaiApiKey) {
+            clientWs.send(JSON.stringify({
+              error: 'No API key provided',
+              text: 'Please provide an OpenAI API key in the setup page or configure OPENAI_API_KEY in environment variables.'
+            }));
+            return;
+          }
+
           console.log(`User selected OpenAI model: ${userSelectedModel}, mode: ${isAudioOnlyMode ? 'audio-only' : 'vision+audio'}`);
 
           // Connect to OpenAI

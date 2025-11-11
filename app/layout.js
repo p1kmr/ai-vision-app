@@ -1,4 +1,5 @@
 import './globals.css';
+import { AuthProvider } from './contexts/AuthContext';
 
 export const metadata = {
   title: 'AI Vision App',
@@ -16,7 +17,11 @@ export default function RootLayout({ children }) {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </body>
     </html>
   );
 }
