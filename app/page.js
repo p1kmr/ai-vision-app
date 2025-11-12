@@ -23,14 +23,19 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      // Check if user has API keys set up
-      const hasGeminiKey = sessionStorage.getItem('gemini_api_key');
-      const hasOpenAIKey = sessionStorage.getItem('openai_api_key');
+      // Check if user has API keys set up (only in browser)
+      if (typeof window !== 'undefined') {
+        const hasGeminiKey = sessionStorage.getItem('gemini_api_key');
+        const hasOpenAIKey = sessionStorage.getItem('openai_api_key');
 
-      // Redirect to setup if no API keys, otherwise go to camera
-      if (!hasGeminiKey && !hasOpenAIKey) {
-        router.push('/setup');
+        // Redirect to setup if no API keys, otherwise go to camera
+        if (!hasGeminiKey && !hasOpenAIKey) {
+          router.push('/setup');
+        } else {
+          router.push('/camera');
+        }
       } else {
+        // Fallback for SSR (though this shouldn't happen in practice)
         router.push('/camera');
       }
     } catch (err) {

@@ -19,6 +19,12 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Only run on client-side where auth is available
+    if (!auth) {
+      setLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
@@ -36,10 +42,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
-    // Clear API keys and settings from sessionStorage
-    sessionStorage.removeItem('gemini_api_key');
-    sessionStorage.removeItem('openai_api_key');
-    sessionStorage.removeItem('advanced_settings');
+    // Clear API keys and settings from sessionStorage (only in browser)
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('gemini_api_key');
+      sessionStorage.removeItem('openai_api_key');
+      sessionStorage.removeItem('advanced_settings');
+    }
     return signOut(auth);
   };
 

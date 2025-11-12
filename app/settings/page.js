@@ -20,14 +20,16 @@ function SettingsPageContent() {
   const router = useRouter();
 
   useEffect(() => {
-    // Load existing settings from localStorage if any
-    const savedSettings = localStorage.getItem('advanced_settings');
-    if (savedSettings) {
-      try {
-        const parsed = JSON.parse(savedSettings);
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
-      } catch (e) {
-        console.error('Failed to parse saved settings:', e);
+    // Load existing settings from localStorage if any (only in browser)
+    if (typeof window !== 'undefined') {
+      const savedSettings = localStorage.getItem('advanced_settings');
+      if (savedSettings) {
+        try {
+          const parsed = JSON.parse(savedSettings);
+          setSettings({ ...DEFAULT_SETTINGS, ...parsed });
+        } catch (e) {
+          console.error('Failed to parse saved settings:', e);
+        }
       }
     }
   }, []);
@@ -52,8 +54,10 @@ function SettingsPageContent() {
       return;
     }
 
-    // Save to localStorage
-    localStorage.setItem('advanced_settings', JSON.stringify(settings));
+    // Save to localStorage (only in browser)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('advanced_settings', JSON.stringify(settings));
+    }
     setSuccess('Settings saved successfully!');
 
     // Clear success message after 3 seconds
@@ -64,7 +68,10 @@ function SettingsPageContent() {
 
   const handleReset = () => {
     setSettings(DEFAULT_SETTINGS);
-    localStorage.removeItem('advanced_settings');
+    // Remove from localStorage (only in browser)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('advanced_settings');
+    }
     setSuccess('Settings reset to defaults!');
     setTimeout(() => {
       setSuccess('');

@@ -13,11 +13,13 @@ function SetupPageContent() {
   const router = useRouter();
 
   useEffect(() => {
-    // Load existing keys from sessionStorage if any
-    const savedGeminiKey = sessionStorage.getItem('gemini_api_key') || '';
-    const savedOpenaiKey = sessionStorage.getItem('openai_api_key') || '';
-    setGeminiKey(savedGeminiKey);
-    setOpenaiKey(savedOpenaiKey);
+    // Load existing keys from sessionStorage if any (only in browser)
+    if (typeof window !== 'undefined') {
+      const savedGeminiKey = sessionStorage.getItem('gemini_api_key') || '';
+      const savedOpenaiKey = sessionStorage.getItem('openai_api_key') || '';
+      setGeminiKey(savedGeminiKey);
+      setOpenaiKey(savedOpenaiKey);
+    }
   }, []);
 
   const handleSave = (e) => {

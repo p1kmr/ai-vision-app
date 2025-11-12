@@ -249,8 +249,8 @@ function LiveTalkPageContent() {
       clearInterval(sessionTimerRef.current);
       clearTimeout(reconnectTimeoutRef.current);
 
-      // Auto-reconnect after 3 seconds
-      if (mediaStreamRef.current && sessionStorage.getItem('authenticated')) {
+      // Auto-reconnect after 3 seconds (only if media stream still active)
+      if (mediaStreamRef.current) {
         setTimeout(() => {
           connectWebSocket(mediaStreamRef.current);
         }, 3000);
