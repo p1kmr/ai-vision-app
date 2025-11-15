@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "firebase": "^12.5.0",
     "next": "^15.0.0",
     "openai": "^4.73.0",
     "react": "^18.3.0",

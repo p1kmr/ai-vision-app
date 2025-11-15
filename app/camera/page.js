@@ -4,9 +4,13 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { PCM16AudioCapture } from '../lib/audio-capture';
 import { PCM16AudioPlayer } from '../lib/audio-player';
+import ProtectedRoute from '../components/ProtectedRoute';
+import Header from '../components/Header';
+import { useAuth } from '../contexts/AuthContext';
 
-export default function CameraPage() {
+function CameraPageContent() {
   const router = useRouter();
+  const { logout } = useAuth();
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [aiResponse, setAiResponse] = useState('Select a model and click Start to begin');
@@ -87,13 +91,6 @@ export default function CameraPage() {
   const reconnectTimeoutRef = useRef(null);
   const pcm16CaptureRef = useRef(null); // For OpenAI PCM16 audio capture
   const audioPlayerRef = useRef(null); // For OpenAI audio playback
-
-  // Check authentication
-  useEffect(() => {
-    if (typeof window !== 'undefined' && !sessionStorage.getItem('authenticated')) {
-      router.push('/');
-    }
-  }, [router]);
 
   // Cleanup function - defined before useEffect to avoid reference error
   const cleanup = useCallback(() => {
@@ -182,12 +179,25 @@ export default function CameraPage() {
       setAiResponse('AI is watching and listening...');
       setSessionTime(0);
 
-      // Send model selection to server
-      ws.send(JSON.stringify({
+      // Get API keys from sessionStorage
+      const geminiApiKey = sessionStorage.getItem('gemini_api_key');
+      const openaiApiKey = sessionStorage.getItem('openai_api_key');
+
+      // Send model selection to server with API key
+      const modelSelection = {
         type: 'model_selection',
         model: selectedModel,
         mode: 'vision+audio'  // Camera mode includes both video and audio
-      }));
+      };
+
+      // Add appropriate API key based on provider
+      if (selectedProvider === 'gemini') {
+        modelSelection.apiKey = geminiApiKey;
+      } else if (selectedProvider === 'openai') {
+        modelSelection.apiKey = openaiApiKey;
+      }
+
+      ws.send(JSON.stringify(modelSelection));
 
       // Start session timer
       sessionTimerRef.current = setInterval(() => {
@@ -263,8 +273,8 @@ export default function CameraPage() {
       clearInterval(sessionTimerRef.current);
       clearTimeout(reconnectTimeoutRef.current);
 
-      // Auto-reconnect after 3 seconds
-      if (mediaStreamRef.current && sessionStorage.getItem('authenticated')) {
+      // Auto-reconnect after 3 seconds (only if media stream still active)
+      if (mediaStreamRef.current) {
         setTimeout(() => {
           connectWebSocket(mediaStreamRef.current);
         }, 3000);
@@ -447,11 +457,15 @@ export default function CameraPage() {
     setSessionTime(0);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     // End session and logout
     cleanup();
-    sessionStorage.removeItem('authenticated');
-    router.push('/');
+    try {
+      await logout();
+      router.push('/');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   const handleSwitchToLiveTalk = () => {
@@ -671,5 +685,14 @@ export default function CameraPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CameraPage() {
+  return (
+    <ProtectedRoute>
+      <Header />
+      <CameraPageContent />
+    </ProtectedRoute>
   );
 }
