@@ -56,13 +56,13 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-black p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-2xl border border-white/20">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-black p-4 lg:p-8">
+      <div className="w-full max-w-md lg:max-w-lg xl:max-w-2xl">
+        <div className="bg-white/10 backdrop-blur-lg p-8 lg:p-10 xl:p-12 rounded-2xl lg:rounded-3xl shadow-2xl border border-white/20">
           {/* App Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold mb-2 text-white">AI Vision</h1>
-            <p className="text-white/60 text-sm">Sign in with your Google account</p>
+          <div className="text-center mb-8 lg:mb-10">
+            <h1 className="text-4xl lg:text-5xl xl:text-6xl font-bold mb-2 lg:mb-3 text-white">AI Vision</h1>
+            <p className="text-white/60 text-sm lg:text-base xl:text-lg">Sign in with your Google account</p>
           </div>
 
           {/* Error Message */}
@@ -76,13 +76,13 @@ export default function LoginPage() {
           <button
             onClick={handleGoogleLogin}
             disabled={loading}
-            className="w-full bg-white hover:bg-gray-100 disabled:bg-gray-300 text-gray-800 font-semibold p-4 rounded-lg transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg"
+            className="w-full bg-white hover:bg-gray-100 disabled:bg-gray-300 text-gray-800 font-semibold p-4 lg:p-5 xl:p-6 rounded-lg lg:rounded-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed flex items-center justify-center gap-3 lg:gap-4 shadow-lg"
           >
             {loading ? (
-              <span>Signing in...</span>
+              <span className="text-base lg:text-lg xl:text-xl">Signing in...</span>
             ) : (
               <>
-                <svg className="w-6 h-6" viewBox="0 0 24 24">
+                <svg className="w-6 h-6 lg:w-8 lg:h-8 xl:w-10 xl:h-10" viewBox="0 0 24 24">
                   <path
                     fill="#4285F4"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -100,14 +100,14 @@ export default function LoginPage() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                   />
                 </svg>
-                <span>Sign in with Google</span>
+                <span className="text-base lg:text-lg xl:text-xl">Sign in with Google</span>
               </>
             )}
           </button>
 
           {/* Info Text */}
-          <div className="mt-6 text-center">
-            <p className="text-white/50 text-xs">
+          <div className="mt-6 lg:mt-8 text-center">
+            <p className="text-white/50 text-xs lg:text-sm xl:text-base">
               Only legitimate email addresses are allowed.
               <br />
               Temporary/disposable emails will be rejected.
@@ -115,9 +115,9 @@ export default function LoginPage() {
           </div>
 
           {/* Features List */}
-          <div className="mt-8 pt-6 border-t border-white/10">
-            <p className="text-white/60 text-sm font-semibold mb-3 text-center">Features:</p>
-            <ul className="text-white/50 text-xs space-y-2">
+          <div className="mt-8 lg:mt-10 pt-6 lg:pt-8 border-t border-white/10">
+            <p className="text-white/60 text-sm lg:text-base font-semibold mb-3 lg:mb-4 text-center">Features:</p>
+            <ul className="text-white/50 text-xs lg:text-sm xl:text-base space-y-2 lg:space-y-3">
               <li className="flex items-center gap-2">
                 <span className="text-green-400">✓</span>
                 Real-time AI vision analysis

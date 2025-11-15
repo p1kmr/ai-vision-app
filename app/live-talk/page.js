@@ -400,20 +400,20 @@ function LiveTalkPageContent() {
       </div>
 
       {/* Main Content */}
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-3 sm:p-4 md:p-6">
+      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-3 sm:p-4 md:p-6 lg:p-8">
 
         {/* Header */}
-        <div className="mb-4 sm:mb-6 md:mb-8 text-center px-2">
-          <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-1 sm:mb-2">
+        <div className="mb-4 sm:mb-6 md:mb-8 lg:mb-10 text-center px-2">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold text-white mb-1 sm:mb-2 lg:mb-3">
             Live Audio Talk
           </h1>
-          <p className="text-gray-400 text-sm sm:text-base md:text-lg">
+          <p className="text-gray-400 text-sm sm:text-base md:text-lg lg:text-xl">
             Audio-only AI conversation
           </p>
         </div>
 
         {/* Main Card */}
-        <div className="w-full max-w-2xl bg-gray-800/50 backdrop-blur-xl rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-gray-700/50 shadow-2xl">
+        <div className="w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl bg-gray-800/50 backdrop-blur-xl rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 lg:p-10 border border-gray-700/50 shadow-2xl">
 
           {/* Connection Status */}
           {hasStarted && (
@@ -529,9 +529,9 @@ function LiveTalkPageContent() {
 
           {/* AI Response Display */}
           <div className="mb-4 sm:mb-6">
-            <h3 className="text-gray-400 text-xs sm:text-sm font-medium mb-2 sm:mb-3">AI Response</h3>
-            <div className="bg-gradient-to-br from-gray-700/40 to-gray-800/40 rounded-xl sm:rounded-2xl p-4 sm:p-6 min-h-[150px] sm:min-h-[200px] border border-gray-700/50">
-              <p className="text-gray-100 text-sm sm:text-base md:text-lg leading-relaxed whitespace-pre-wrap">
+            <h3 className="text-gray-400 text-xs sm:text-sm lg:text-base font-medium mb-2 sm:mb-3">AI Response</h3>
+            <div className="bg-gradient-to-br from-gray-700/40 to-gray-800/40 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 min-h-[150px] sm:min-h-[200px] lg:min-h-[250px] border border-gray-700/50">
+              <p className="text-gray-100 text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed whitespace-pre-wrap">
                 {aiResponse}
               </p>
             </div>
@@ -545,24 +545,24 @@ function LiveTalkPageContent() {
           )}
 
           {/* Controls */}
-          <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-2 sm:gap-3">
+          <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-2 sm:gap-3 lg:gap-4">
             {!hasStarted ? (
               <>
                 <button
                   onClick={handleStart}
-                  className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-3 bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-900 rounded-full font-semibold text-base sm:text-lg transition-all transform hover:scale-105 active:scale-95 shadow-lg"
+                  className="w-full sm:w-auto px-6 sm:px-8 lg:px-10 py-3 sm:py-3.5 lg:py-4 bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-900 rounded-full font-semibold text-base sm:text-lg lg:text-xl transition-all transform hover:scale-105 active:scale-95 shadow-lg"
                 >
                   Start Live Talk
                 </button>
                 <button
                   onClick={handleBackToVision}
-                  className="w-full sm:w-auto px-5 sm:px-6 py-3 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base transition-all border border-gray-600"
+                  className="w-full sm:w-auto px-5 sm:px-6 lg:px-8 py-3 sm:py-3.5 lg:py-4 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base lg:text-lg transition-all border border-gray-600 shadow-lg"
                 >
                   Switch to Vision
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="w-full sm:w-auto px-5 sm:px-6 py-3 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base transition-all border border-gray-600"
+                  className="w-full sm:w-auto px-5 sm:px-6 lg:px-8 py-3 sm:py-3.5 lg:py-4 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base lg:text-lg transition-all border border-gray-600 shadow-lg"
                 >
                   Logout
                 </button>
@@ -571,13 +571,13 @@ function LiveTalkPageContent() {
               <>
                 <button
                   onClick={handleStopStreaming}
-                  className="w-full sm:w-auto px-6 sm:px-8 py-3 bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-white rounded-full font-medium text-sm sm:text-base transition-all transform hover:scale-105 active:scale-95 shadow-lg"
+                  className="w-full sm:w-auto px-6 sm:px-8 lg:px-10 py-3 sm:py-3.5 lg:py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-full font-semibold text-sm sm:text-base lg:text-lg transition-all transform hover:scale-105 active:scale-95 shadow-lg"
                 >
                   Stop Audio
                 </button>
                 <button
                   onClick={handleLogout}
-                  className="w-full sm:w-auto px-5 sm:px-6 py-3 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-100 rounded-full font-medium text-sm sm:text-base transition-all transform hover:scale-105 active:scale-95"
+                  className="w-full sm:w-auto px-5 sm:px-6 lg:px-8 py-3 sm:py-3.5 lg:py-4 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-100 rounded-full font-medium text-sm sm:text-base lg:text-lg transition-all transform hover:scale-105 active:scale-95 shadow-lg"
                 >
                   Logout
                 </button>

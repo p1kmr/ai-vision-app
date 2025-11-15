@@ -494,8 +494,9 @@ function CameraPageContent() {
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Top Overlay - AI Response */}
-      <div className="absolute top-0 left-0 right-0 p-2 sm:p-3 md:p-4 bg-gradient-to-b from-black/90 to-transparent">
-        <div className="bg-black/60 backdrop-blur-md rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-white/10">
+      <div className="absolute top-0 left-0 right-0 p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-b from-black/90 to-transparent">
+        <div className="max-w-7xl mx-auto">
+        <div className="bg-black/60 backdrop-blur-md rounded-xl sm:rounded-2xl p-3 sm:p-4 lg:p-6 border border-white/10">
           {/* Connection Status */}
           {hasStarted && (
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2 sm:mb-3 gap-1 sm:gap-0">
@@ -621,7 +622,7 @@ function CameraPageContent() {
 
           {/* AI Response */}
           <div className="text-white">
-            <p className="text-sm sm:text-base md:text-lg leading-relaxed font-light">
+            <p className="text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed font-light">
               {aiResponse}
             </p>
           </div>
@@ -629,32 +630,33 @@ function CameraPageContent() {
           {/* Error Display */}
           {error && (
             <div className="mt-2 sm:mt-3 p-2 sm:p-2.5 bg-red-500/20 border border-red-500/50 rounded-md sm:rounded-lg">
-              <p className="text-red-300 text-xs sm:text-sm">{error}</p>
+              <p className="text-red-300 text-xs sm:text-sm lg:text-base">{error}</p>
             </div>
           )}
+        </div>
         </div>
       </div>
 
       {/* Bottom Controls */}
-      <div className="absolute bottom-0 left-0 right-0 pb-4 sm:pb-6 md:pb-8 pt-16 bg-gradient-to-t from-black/95 via-black/80 to-transparent z-10">
-        <div className="flex flex-col sm:flex-row justify-center items-center gap-2 sm:gap-3 md:gap-4 max-w-4xl mx-auto px-4 sm:px-6">
+      <div className="absolute bottom-0 left-0 right-0 pb-4 sm:pb-6 md:pb-8 lg:pb-10 pt-16 lg:pt-20 bg-gradient-to-t from-black/95 via-black/80 to-transparent z-10">
+        <div className="flex flex-col sm:flex-row justify-center items-center gap-2 sm:gap-3 md:gap-4 lg:gap-5 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           {!hasStarted ? (
             <>
               <button
                 onClick={handleStart}
-                className="w-full sm:w-auto px-8 sm:px-10 md:px-12 py-3 sm:py-3.5 md:py-4 bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-900 rounded-full font-semibold text-base sm:text-lg backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 shadow-lg"
+                className="w-full sm:w-auto px-8 sm:px-10 md:px-12 lg:px-14 py-3 sm:py-3.5 md:py-4 lg:py-4.5 bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-900 rounded-full font-semibold text-base sm:text-lg lg:text-xl backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 shadow-lg"
               >
                 Start AI Vision
               </button>
               <button
                 onClick={handleSwitchToLiveTalk}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/80 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-gray-600 shadow-lg"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 lg:px-10 py-3 sm:py-3.5 md:py-4 lg:py-4.5 bg-gray-700/80 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base lg:text-lg backdrop-blur-sm transition-all border border-gray-600 shadow-lg"
               >
                 Switch to Live Talk
               </button>
               <button
                 onClick={handleLogout}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/80 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-gray-600 shadow-lg"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 lg:px-10 py-3 sm:py-3.5 md:py-4 lg:py-4.5 bg-gray-700/80 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base lg:text-lg backdrop-blur-sm transition-all border border-gray-600 shadow-lg"
               >
                 Back to Login
               </button>
@@ -663,13 +665,13 @@ function CameraPageContent() {
             <>
               <button
                 onClick={handleStopStreaming}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-full font-semibold text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 shadow-lg"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 lg:px-10 py-3 sm:py-3.5 md:py-4 lg:py-4.5 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-full font-semibold text-sm sm:text-base lg:text-lg backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 shadow-lg"
               >
                 Stop Camera & Mic
               </button>
               <button
                 onClick={handleLogout}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/80 hover:bg-gray-600 active:bg-gray-500 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 border border-gray-600 shadow-lg"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 lg:px-10 py-3 sm:py-3.5 md:py-4 lg:py-4.5 bg-gray-700/80 hover:bg-gray-600 active:bg-gray-500 text-gray-100 rounded-full font-medium text-sm sm:text-base lg:text-lg backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 border border-gray-600 shadow-lg"
               >
                 Logout
               </button>

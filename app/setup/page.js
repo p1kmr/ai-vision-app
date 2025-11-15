@@ -61,11 +61,11 @@ function SetupPageContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black">
       <Header />
-      <div className="flex items-center justify-center p-4 pt-20">
-        <div className="w-full max-w-2xl">
-          <form onSubmit={handleSave} className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-2xl border border-white/20">
-            <h1 className="text-3xl font-bold mb-2 text-center text-white">API Key Setup</h1>
-            <p className="text-white/60 text-center mb-8 text-sm">
+      <div className="flex items-center justify-center p-4 lg:p-8 pt-20 lg:pt-24">
+        <div className="w-full max-w-2xl lg:max-w-3xl xl:max-w-4xl">
+          <form onSubmit={handleSave} className="bg-white/10 backdrop-blur-lg p-8 lg:p-10 xl:p-12 rounded-2xl shadow-2xl border border-white/20">
+            <h1 className="text-3xl lg:text-4xl xl:text-5xl font-bold mb-2 lg:mb-3 text-center text-white">API Key Setup</h1>
+            <p className="text-white/60 text-center mb-8 lg:mb-10 text-sm lg:text-base xl:text-lg">
               Enter your API keys to use the AI Vision features. Your keys are stored only in your browser session and never saved to a database.
             </p>
 
@@ -81,9 +81,9 @@ function SetupPageContent() {
               </div>
             )}
 
-            <div className="space-y-6">
+            <div className="space-y-6 lg:space-y-8">
               <div>
-                <label className="block text-white font-semibold mb-2">
+                <label className="block text-white font-semibold mb-2 lg:mb-3 text-base lg:text-lg">
                   Google Gemini API Key
                 </label>
                 <input
@@ -91,9 +91,9 @@ function SetupPageContent() {
                   placeholder="Enter your Gemini API key (optional)"
                   value={geminiKey}
                   onChange={(e) => setGeminiKey(e.target.value)}
-                  className="w-full p-4 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full p-4 lg:p-5 bg-white/10 border border-white/20 rounded-lg text-white text-base lg:text-lg placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <p className="text-white/50 text-xs mt-2">
+                <p className="text-white/50 text-xs lg:text-sm mt-2">
                   Get your key from{' '}
                   <a
                     href="https://aistudio.google.com/apikey"
@@ -107,7 +107,7 @@ function SetupPageContent() {
               </div>
 
               <div>
-                <label className="block text-white font-semibold mb-2">
+                <label className="block text-white font-semibold mb-2 lg:mb-3 text-base lg:text-lg">
                   OpenAI API Key
                 </label>
                 <input
@@ -115,9 +115,9 @@ function SetupPageContent() {
                   placeholder="Enter your OpenAI API key (optional)"
                   value={openaiKey}
                   onChange={(e) => setOpenaiKey(e.target.value)}
-                  className="w-full p-4 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full p-4 lg:p-5 bg-white/10 border border-white/20 rounded-lg text-white text-base lg:text-lg placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <p className="text-white/50 text-xs mt-2">
+                <p className="text-white/50 text-xs lg:text-sm mt-2">
                   Get your key from{' '}
                   <a
                     href="https://platform.openai.com/api-keys"
@@ -130,25 +130,25 @@ function SetupPageContent() {
                 </p>
               </div>
 
-              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                <p className="text-blue-200 text-sm">
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 lg:p-5">
+                <p className="text-blue-200 text-sm lg:text-base">
                   <strong>Privacy Notice:</strong> Your API keys are stored only in your browser&apos;s session storage.
                   They are never sent to our servers for storage and will be cleared when you logout or close the browser.
                 </p>
               </div>
             </div>
 
-            <div className="flex gap-4 mt-8">
+            <div className="flex flex-col sm:flex-row gap-4 lg:gap-5 mt-8 lg:mt-10">
               <button
                 type="submit"
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-lg font-semibold transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white p-4 lg:p-5 rounded-lg text-base lg:text-lg font-semibold transition-all transform hover:scale-[1.02] active:scale-[0.98]"
               >
                 Save Keys
               </button>
               <button
                 type="button"
                 onClick={handleSkip}
-                className="px-6 bg-gray-700 hover:bg-gray-600 text-white p-4 rounded-lg font-semibold transition-all"
+                className="px-6 lg:px-8 bg-gray-700 hover:bg-gray-600 text-white p-4 lg:p-5 rounded-lg text-base lg:text-lg font-semibold transition-all"
               >
                 Skip
               </button>
