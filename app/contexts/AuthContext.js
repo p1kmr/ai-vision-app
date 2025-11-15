@@ -2,13 +2,13 @@
 
 import { createContext, useContext, useState, useEffect } from 'react';
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  sendPasswordResetEmail
+  signInWithPopup,
+  GoogleAuthProvider
 } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { auth, googleProvider } from '../lib/firebase';
+import { validateGoogleEmail } from '../lib/email-validator';
 
 const AuthContext = createContext({});
 
@@ -33,12 +33,31 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
-  const signup = (email, password) => {
-    return createUserWithEmailAndPassword(auth, email, password);
-  };
+  const loginWithGoogle = async () => {
+    if (!auth || !googleProvider) {
+      throw new Error('Firebase auth is not initialized');
+    }
 
-  const login = (email, password) => {
-    return signInWithEmailAndPassword(auth, email, password);
+    try {
+      // Sign in with Google popup
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+
+      // Validate the email address
+      const validation = validateGoogleEmail(user.email);
+      
+      if (!validation.isValid) {
+        // If email is not valid, sign out the user and throw error
+        await signOut(auth);
+        throw new Error(validation.error);
+      }
+
+      // Email is valid, return the result
+      return result;
+    } catch (error) {
+      // Re-throw the error to be handled by the component
+      throw error;
+    }
   };
 
   const logout = () => {
@@ -51,18 +70,12 @@ export const AuthProvider = ({ children }) => {
     return signOut(auth);
   };
 
-  const resetPassword = (email) => {
-    return sendPasswordResetEmail(auth, email);
-  };
-
   return (
     <AuthContext.Provider value={{
       user,
       loading,
-      signup,
-      login,
-      logout,
-      resetPassword
+      loginWithGoogle,
+      logout
     }}>
       {children}
     </AuthContext.Provider>

@@ -636,8 +636,8 @@ function CameraPageContent() {
       </div>
 
       {/* Bottom Controls */}
-      <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-3 md:p-4 bg-gradient-to-t from-black/90 to-transparent">
-        <div className="flex flex-col sm:flex-row justify-center gap-2 sm:gap-3 md:gap-4 max-w-4xl mx-auto px-2">
+      <div className="absolute bottom-0 left-0 right-0 pb-4 sm:pb-6 md:pb-8 pt-16 bg-gradient-to-t from-black/95 via-black/80 to-transparent z-10">
+        <div className="flex flex-col sm:flex-row justify-center items-center gap-2 sm:gap-3 md:gap-4 max-w-4xl mx-auto px-4 sm:px-6">
           {!hasStarted ? (
             <>
               <button
@@ -648,13 +648,13 @@ function CameraPageContent() {
               </button>
               <button
                 onClick={handleSwitchToLiveTalk}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-gray-600"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/80 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-gray-600 shadow-lg"
               >
                 Switch to Live Talk
               </button>
               <button
                 onClick={handleLogout}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-gray-600"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/80 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all border border-gray-600 shadow-lg"
               >
                 Back to Login
               </button>
@@ -663,13 +663,13 @@ function CameraPageContent() {
             <>
               <button
                 onClick={handleStopStreaming}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-white rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-full font-semibold text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 shadow-lg"
               >
                 Stop Camera & Mic
               </button>
               <button
                 onClick={handleLogout}
-                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95"
+                className="w-full sm:w-auto px-6 sm:px-7 md:px-8 py-3 sm:py-3.5 md:py-4 bg-gray-700/80 hover:bg-gray-600 active:bg-gray-500 text-gray-100 rounded-full font-medium text-sm sm:text-base backdrop-blur-sm transition-all transform hover:scale-105 active:scale-95 border border-gray-600 shadow-lg"
               >
                 Logout
               </button>

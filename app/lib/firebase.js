@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 
 // Firebase configuration from environment variables
 // Users need to add these to .env.local
@@ -26,5 +26,15 @@ if (typeof window !== 'undefined') {
   auth = getAuth(app);
 }
 
-export { auth };
+// Initialize Google Auth Provider
+const googleProvider = typeof window !== 'undefined' ? new GoogleAuthProvider() : null;
+
+// Force account selection every time
+if (googleProvider) {
+  googleProvider.setCustomParameters({
+    prompt: 'select_account'
+  });
+}
+
+export { auth, googleProvider };
 export default app;
