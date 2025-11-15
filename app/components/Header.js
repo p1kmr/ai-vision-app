@@ -21,9 +21,12 @@ export default function Header() {
   return (
     <header className="bg-black/50 backdrop-blur-lg border-b border-white/10 p-4">
       <div className="max-w-7xl mx-auto flex justify-between items-center">
-        <div className="text-white font-semibold text-lg">
+        <button
+          onClick={() => router.push('/camera')}
+          className="text-white font-semibold text-lg focus:outline-none hover:text-blue-300 transition-colors"
+        >
           AI Vision App
-        </div>
+        </button>
         <div className="flex gap-4 items-center">
           <span className="text-white/70 text-sm">{user.email}</span>
           <button
