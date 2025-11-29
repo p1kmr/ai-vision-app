@@ -798,7 +798,7 @@ app.prepare().then(() => {
     activeConnections.set(connectionId, { clientWs, geminiWs });
 
     // Handle client messages
-    clientWs.on('message', (message) => {
+    clientWs.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
 
