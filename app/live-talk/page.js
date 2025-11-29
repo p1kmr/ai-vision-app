@@ -7,6 +7,7 @@ import { PCM16AudioPlayer } from '../lib/audio-player';
 import ProtectedRoute from '../components/ProtectedRoute';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
+import Chatbox from '../components/Chatbox';
 
 function LiveTalkPageContent() {
   const router = useRouter();
@@ -20,6 +21,9 @@ function LiveTalkPageContent() {
   const [hasStarted, setHasStarted] = useState(false);
   const [userTranscription, setUserTranscription] = useState(''); // Store user's spoken words
   const [isUserSpeaking, setIsUserSpeaking] = useState(false); // Track if user is speaking (OpenAI VAD)
+  const [isChatMode, setIsChatMode] = useState(false); // Toggle between voice and chat
+  const [chatMessages, setChatMessages] = useState([]); // Store chat messages
+  const [tokenLimit, setTokenLimit] = useState('high'); // Token limit for o3 model
 
   // Available AI providers
   const availableProviders = [
@@ -67,7 +71,22 @@ function LiveTalkPageContent() {
       description: 'Lighter & cheaper realtime model',
       features: 'Fast audio processing, cost-effective',
       recommended: false
+    },
+    {
+      id: 'o3',
+      name: 'OpenAI o3',
+      description: 'Advanced reasoning model for complex tasks',
+      features: 'Superior reasoning, multi-modal support, text & image processing',
+      recommended: false,
+      requiresTokenLimit: true
     }
+  ];
+
+  // Token limit options for o3 model
+  const tokenLimitOptions = [
+    { id: 'low', name: 'Low', tokens: '20k', description: 'Basic reasoning tasks' },
+    { id: 'medium', name: 'Medium', tokens: '65k', description: 'Moderate complexity' },
+    { id: 'high', name: 'High', tokens: '100k', description: 'Complex reasoning' }
   ];
 
   // Get current available models based on provider
@@ -113,6 +132,15 @@ function LiveTalkPageContent() {
 
   const handleStart = async () => {
     setHasStarted(true);
+
+    // For o3 model, skip audio initialization and connect directly
+    if (selectedModel === 'o3') {
+      setAiResponse('Connecting to OpenAI o3...');
+      setIsChatMode(true); // Automatically switch to chat mode for o3
+      connectWebSocket(null);
+      return;
+    }
+
     setAiResponse('Initializing microphone...');
     await initializeAudioAndAI();
   };
@@ -180,8 +208,10 @@ function LiveTalkPageContent() {
         setSessionTime(prev => prev + 1);
       }, 1000);
 
-      // Start audio streaming
-      startAudioStreaming(ws, stream);
+      // Start audio streaming (skip for o3 model)
+      if (stream) {
+        startAudioStreaming(ws, stream);
+      }
 
       // Auto-reconnect before session limit
       // Note: Free tier has 200 requests/day limit. Reconnecting every 8 minutes = ~180 requests/day
@@ -224,8 +254,18 @@ function LiveTalkPageContent() {
           console.log('AI finished speaking');
         }
 
-        // Handle AI response text
-        if (data.text) {
+        // Handle chat message response
+        if (data.type === 'chat_response') {
+          const aiMessage = {
+            role: 'assistant',
+            text: data.text,
+            timestamp: Date.now()
+          };
+          setChatMessages(prev => [...prev, aiMessage]);
+        }
+
+        // Handle AI response text (for voice mode)
+        if (data.text && data.type !== 'chat_response') {
           setAiResponse(data.text);
         }
 
@@ -390,6 +430,49 @@ function LiveTalkPageContent() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const handleSendChatMessage = async (messageData) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setError('Not connected to AI');
+      return;
+    }
+
+    // Add user message to chat
+    const userMessage = {
+      role: 'user',
+      text: messageData.text,
+      files: messageData.files,
+      timestamp: Date.now()
+    };
+    setChatMessages(prev => [...prev, userMessage]);
+
+    // Convert files to base64
+    const filesData = await Promise.all(
+      messageData.files.map(async (fileObj) => {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            resolve({
+              name: fileObj.name,
+              type: fileObj.type,
+              data: reader.result.split(',')[1] // Get base64 data
+            });
+          };
+          reader.readAsDataURL(fileObj.file);
+        });
+      })
+    );
+
+    // Send to server
+    wsRef.current.send(JSON.stringify({
+      type: 'chat_message',
+      text: messageData.text,
+      files: filesData,
+      model: selectedModel,
+      tokenLimit: tokenLimit,
+      timestamp: Date.now()
+    }));
+  };
+
   return (
     <div className="relative min-h-screen w-screen bg-gradient-to-br from-gray-900 via-slate-900 to-zinc-900 overflow-hidden">
       {/* Animated background */}
@@ -423,18 +506,42 @@ function LiveTalkPageContent() {
                 <span className="text-gray-200 text-xs sm:text-sm font-medium">
                   {isConnected ? 'AI Connected' : 'Connecting...'}
                 </span>
-                {selectedProvider === 'openai' && isUserSpeaking && (
+                {selectedProvider === 'openai' && isUserSpeaking && !isChatMode && (
                   <span className="text-blue-400 text-xs sm:text-sm font-medium flex items-center gap-1">
                     <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
                     Speaking...
                   </span>
                 )}
               </div>
-              {isConnected && (
-                <span className="text-gray-400 text-xs sm:text-sm">
-                  Session: {formatTime(sessionTime)}
-                </span>
-              )}
+              <div className="flex items-center gap-3">
+                {isConnected && (
+                  <span className="text-gray-400 text-xs sm:text-sm">
+                    Session: {formatTime(sessionTime)}
+                  </span>
+                )}
+                {/* Chat/Voice Toggle Button */}
+                <button
+                  onClick={() => setIsChatMode(!isChatMode)}
+                  className={`p-2 rounded-full transition-all ${
+                    isChatMode
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600/60'
+                  }`}
+                  title={isChatMode ? 'Switch to Voice Mode' : 'Switch to Chat Mode'}
+                >
+                  {isChatMode ? (
+                    // Mic icon (for switching back to voice)
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    // Chat icon
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
           )}
 
@@ -515,27 +622,73 @@ function LiveTalkPageContent() {
             </div>
           )}
 
-          {/* User Transcription - Show what user is saying */}
-          {hasStarted && userTranscription && (
+          {/* Token Limit Selection - For o3 model only */}
+          {!hasStarted && selectedModel === 'o3' && (
             <div className="mb-4 sm:mb-6">
-              <h3 className="text-blue-300 text-xs sm:text-sm font-medium mb-2 sm:mb-3">YOU SAID:</h3>
-              <div className="bg-blue-500/20 border border-blue-500/50 rounded-xl sm:rounded-2xl p-4 sm:p-6">
-                <p className="text-blue-100 text-sm sm:text-base md:text-lg leading-relaxed whitespace-pre-wrap">
-                  {userTranscription}
-                </p>
+              <div className="flex items-center justify-between mb-2 sm:mb-3">
+                <h3 className="text-white text-base sm:text-lg md:text-xl font-semibold">Token Limit</h3>
+              </div>
+              <p className="text-gray-400 text-xs sm:text-sm mb-3 sm:mb-4">
+                Choose the reasoning capacity for o3 model
+              </p>
+
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                {tokenLimitOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    onClick={() => setTokenLimit(option.id)}
+                    className={`p-3 sm:p-4 rounded-lg sm:rounded-xl border transition-all ${
+                      tokenLimit === option.id
+                        ? 'bg-blue-600/60 border-blue-500 shadow-lg'
+                        : 'bg-gray-800/30 border-gray-700/50 hover:bg-gray-700/40 active:bg-gray-700/50'
+                    }`}
+                  >
+                    <div className="text-white text-sm sm:text-base font-medium mb-1">{option.name}</div>
+                    <div className="text-gray-300 text-xs sm:text-sm font-semibold mb-1">{option.tokens}</div>
+                    <div className="text-gray-400 text-[10px] sm:text-xs">{option.description}</div>
+                  </button>
+                ))}
               </div>
             </div>
           )}
 
-          {/* AI Response Display */}
-          <div className="mb-4 sm:mb-6">
-            <h3 className="text-gray-400 text-xs sm:text-sm lg:text-base font-medium mb-2 sm:mb-3">AI Response</h3>
-            <div className="bg-gradient-to-br from-gray-700/40 to-gray-800/40 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 min-h-[150px] sm:min-h-[200px] lg:min-h-[250px] border border-gray-700/50">
-              <p className="text-gray-100 text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed whitespace-pre-wrap">
-                {aiResponse}
-              </p>
+          {/* Chat Mode - Show Chatbox */}
+          {hasStarted && isChatMode ? (
+            <div className="mb-4 sm:mb-6 h-[400px] sm:h-[500px] lg:h-[600px]">
+              <Chatbox
+                messages={chatMessages}
+                onSendMessage={handleSendChatMessage}
+                isConnected={isConnected}
+                isLoading={false}
+              />
             </div>
-          </div>
+          ) : (
+            <>
+              {/* Voice Mode - User Transcription */}
+              {hasStarted && userTranscription && (
+                <div className="mb-4 sm:mb-6">
+                  <h3 className="text-blue-300 text-xs sm:text-sm font-medium mb-2 sm:mb-3">YOU SAID:</h3>
+                  <div className="bg-blue-500/20 border border-blue-500/50 rounded-xl sm:rounded-2xl p-4 sm:p-6">
+                    <p className="text-blue-100 text-sm sm:text-base md:text-lg leading-relaxed whitespace-pre-wrap">
+                      {userTranscription}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Voice Mode - AI Response Display */}
+              {hasStarted && (
+                <div className="mb-4 sm:mb-6">
+                  <h3 className="text-gray-400 text-xs sm:text-sm lg:text-base font-medium mb-2 sm:mb-3">AI Response</h3>
+                  <div className="bg-gradient-to-br from-gray-700/40 to-gray-800/40 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 min-h-[150px] sm:min-h-[200px] lg:min-h-[250px] border border-gray-700/50">
+                    <p className="text-gray-100 text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed whitespace-pre-wrap">
+                      {aiResponse}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           {/* Error Display */}
           {error && (

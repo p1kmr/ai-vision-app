@@ -1328,12 +1328,111 @@ app.prepare().then(() => {
 
           console.log(`User selected OpenAI model: ${userSelectedModel}, mode: ${isAudioOnlyMode ? 'audio-only' : 'vision+audio'}`);
 
-          // Connect to OpenAI
+          // For o3 model, don't connect to realtime API (it uses chat completions instead)
+          if (userSelectedModel === 'o3') {
+            clientWs.send(JSON.stringify({
+              text: `Ready to chat with OpenAI o3 (reasoning model)`
+            }));
+            return;
+          }
+
+          // Connect to OpenAI Realtime API for other models
           connectToOpenAI();
 
           clientWs.send(JSON.stringify({
             text: `Connecting to OpenAI with ${userSelectedModel}...`
           }));
+          return;
+        }
+
+        // Handle chat messages (for o3 and other chat-based models)
+        if (data.type === 'chat_message') {
+          if (!openaiApiKey) {
+            clientWs.send(JSON.stringify({
+              error: 'No API key configured',
+              type: 'chat_response',
+              text: 'Please configure your OpenAI API key'
+            }));
+            return;
+          }
+
+          // Process chat message with o3 or other models
+          try {
+            const openai = new OpenAI({ apiKey: openaiApiKey });
+
+            // Build messages array
+            const messages = [];
+
+            // Add user message
+            const messageContent = [];
+
+            if (data.text) {
+              messageContent.push({
+                type: 'text',
+                text: data.text
+              });
+            }
+
+            // Add file attachments (images)
+            if (data.files && data.files.length > 0) {
+              for (const file of data.files) {
+                if (file.type.startsWith('image/')) {
+                  messageContent.push({
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:${file.type};base64,${file.data}`
+                    }
+                  });
+                } else {
+                  // For non-image files, include file info in text
+                  messageContent.push({
+                    type: 'text',
+                    text: `[File: ${file.name}]`
+                  });
+                }
+              }
+            }
+
+            messages.push({
+              role: 'user',
+              content: messageContent
+            });
+
+            // Determine reasoning_effort based on token limit
+            const reasoningEffortMap = {
+              'low': 'low',
+              'medium': 'medium',
+              'high': 'high'
+            };
+            const reasoningEffort = reasoningEffortMap[data.tokenLimit] || 'medium';
+
+            console.log(`[o3] Sending chat message with reasoning effort: ${reasoningEffort}`);
+
+            // Call OpenAI Chat Completions API
+            const completion = await openai.chat.completions.create({
+              model: data.model || userSelectedModel || 'o3',
+              messages: messages,
+              reasoning_effort: reasoningEffort,
+              max_completion_tokens: data.tokenLimit === 'low' ? 20000 : (data.tokenLimit === 'high' ? 100000 : 65000)
+            });
+
+            // Send response back to client
+            const responseText = completion.choices[0]?.message?.content || 'No response generated';
+
+            clientWs.send(JSON.stringify({
+              type: 'chat_response',
+              text: responseText
+            }));
+
+            console.log(`[o3] Response sent successfully`);
+          } catch (error) {
+            console.error('[o3] Chat error:', error);
+            clientWs.send(JSON.stringify({
+              error: 'Chat failed',
+              type: 'chat_response',
+              text: `Error: ${error.message}`
+            }));
+          }
           return;
         }
 
