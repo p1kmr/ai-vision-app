@@ -74,9 +74,9 @@ function LiveTalkPageContent() {
     },
     {
       id: 'o3',
-      name: 'OpenAI o3',
-      description: 'Advanced reasoning model for complex tasks',
-      features: 'Superior reasoning, multi-modal support, text & image processing',
+      name: 'OpenAI o3 (Chat Only)',
+      description: 'Advanced reasoning model - Chat mode only',
+      features: 'Superior reasoning, text & image processing, no voice support',
       recommended: false,
       requiresTokenLimit: true
     }
@@ -519,28 +519,34 @@ function LiveTalkPageContent() {
                     Session: {formatTime(sessionTime)}
                   </span>
                 )}
-                {/* Chat/Voice Toggle Button */}
-                <button
-                  onClick={() => setIsChatMode(!isChatMode)}
-                  className={`p-2 rounded-full transition-all ${
-                    isChatMode
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600/60'
-                  }`}
-                  title={isChatMode ? 'Switch to Voice Mode' : 'Switch to Chat Mode'}
-                >
-                  {isChatMode ? (
-                    // Mic icon (for switching back to voice)
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                    </svg>
-                  ) : (
-                    // Chat icon
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" />
-                    </svg>
-                  )}
-                </button>
+                {/* Chat/Voice Toggle Button - Hidden for o3 (chat-only) */}
+                {selectedModel !== 'o3' && (
+                  <button
+                    onClick={() => setIsChatMode(!isChatMode)}
+                    className={`p-2 rounded-full transition-all ${
+                      isChatMode
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600/60'
+                    }`}
+                    title={isChatMode ? 'Switch to Voice Mode' : 'Switch to Chat Mode'}
+                  >
+                    {isChatMode ? (
+                      // Mic icon (for switching back to voice)
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      // Chat icon
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" />
+                      </svg>
+                    )}
+                  </button>
+                )}
+                {/* o3 Chat-Only Indicator */}
+                {selectedModel === 'o3' && (
+                  <span className="text-xs text-blue-400 font-medium">Chat Mode</span>
+                )}
               </div>
             </div>
           )}
