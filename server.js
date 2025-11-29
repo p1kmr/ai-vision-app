@@ -929,6 +929,7 @@ app.prepare().then(() => {
     let hasReceivedModelSelection = false;
     let isAudioOnlyMode = false;
     let openaiApiKey = null; // Will be provided by client
+    let conversationHistory = []; // Store conversation history for o3 chat
 
     // Audio session tracking for cost estimation
     let sessionStartTime = null;
@@ -1360,10 +1361,7 @@ app.prepare().then(() => {
           try {
             const openai = new OpenAI({ apiKey: openaiApiKey });
 
-            // Build messages array
-            const messages = [];
-
-            // Add user message
+            // Build current user message content
             const messageContent = [];
 
             if (data.text) {
@@ -1393,10 +1391,17 @@ app.prepare().then(() => {
               }
             }
 
-            messages.push({
+            // Create current user message
+            const currentUserMessage = {
               role: 'user',
               content: messageContent
-            });
+            };
+
+            // Add current message to conversation history
+            conversationHistory.push(currentUserMessage);
+
+            // Build full messages array with conversation history
+            const messages = [...conversationHistory];
 
             // Determine reasoning_effort based on token limit value
             const tokenLimit = parseInt(data.tokenLimit) || 100000;
@@ -1408,7 +1413,7 @@ app.prepare().then(() => {
               reasoningEffort = 'high';
             }
 
-            console.log(`[o3] Sending chat message with ${tokenLimit} tokens, reasoning effort: ${reasoningEffort}`);
+            console.log(`[o3] Sending chat message (history: ${conversationHistory.length} messages) with ${tokenLimit} tokens, reasoning effort: ${reasoningEffort}`);
 
             // Call OpenAI Chat Completions API
             const completion = await openai.chat.completions.create({
@@ -1418,15 +1423,22 @@ app.prepare().then(() => {
               max_completion_tokens: tokenLimit
             });
 
-            // Send response back to client
+            // Get assistant response
             const responseText = completion.choices[0]?.message?.content || 'No response generated';
 
+            // Add assistant response to conversation history
+            conversationHistory.push({
+              role: 'assistant',
+              content: responseText
+            });
+
+            // Send response back to client
             clientWs.send(JSON.stringify({
               type: 'chat_response',
               text: responseText
             }));
 
-            console.log(`[o3] Response sent successfully`);
+            console.log(`[o3] Response sent successfully (total messages in history: ${conversationHistory.length})`);
           } catch (error) {
             console.error('[o3] Chat error:', error);
             clientWs.send(JSON.stringify({
