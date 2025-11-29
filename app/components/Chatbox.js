@@ -87,7 +87,12 @@ export default function Chatbox({
   const openCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }, // Use rear camera on mobile
+        video: {
+          facingMode: 'environment', // Use rear camera on mobile
+          width: { ideal: 4096 }, // Request high resolution for better text readability
+          height: { ideal: 2160 },
+          aspectRatio: { ideal: 16/9 }
+        },
         audio: false
       });
       setCameraStream(stream);
@@ -116,27 +121,31 @@ export default function Chatbox({
   const capturePhoto = () => {
     if (!videoRef.current) return;
 
-    // Create canvas to capture photo
+    // Create canvas to capture photo at full resolution
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
     const ctx = canvas.getContext('2d');
+
+    // Use high quality settings for better text/code readability
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(videoRef.current, 0, 0);
 
-    // Convert canvas to blob
+    // Convert canvas to blob - use PNG for lossless quality (better for text/code)
     canvas.toBlob((blob) => {
       if (blob) {
-        const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        const file = new File([blob], `camera-${Date.now()}.png`, { type: 'image/png' });
         const newFile = {
           file,
           preview: URL.createObjectURL(blob),
-          type: 'image/jpeg',
+          type: 'image/png',
           name: file.name
         };
         setAttachedFiles(prev => [...prev, newFile]);
         closeCamera();
       }
-    }, 'image/jpeg', 0.95);
+    }, 'image/png'); // PNG format for lossless quality
   };
 
   const removeFile = (index) => {
