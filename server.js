@@ -459,6 +459,7 @@ app.prepare().then(() => {
     let userSelectedModel = null; // Store user's model selection
     let hasReceivedModelSelection = false;
     let isAudioOnlyMode = false; // Track if this is audio-only mode
+    let conversationHistory = []; // Store conversation history for chat mode
 
     // Helper function to normalize MIME type (remove codec specifications)
     const normalizeMimeType = (mimeType) => {
@@ -797,9 +798,117 @@ app.prepare().then(() => {
     activeConnections.set(connectionId, { clientWs, geminiWs });
 
     // Handle client messages
-    clientWs.on('message', (message) => {
+    clientWs.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
+
+        // Handle chat messages (for Gemini chat mode)
+        if (data.type === 'chat_message') {
+          if (!geminiApiKey) {
+            clientWs.send(JSON.stringify({
+              error: 'No API key configured',
+              type: 'chat_response',
+              text: 'Please configure your Gemini API key'
+            }));
+            return;
+          }
+
+          // Process chat message with Gemini
+          try {
+            const { GoogleGenerativeAI } = require('@google/generative-ai');
+            const genAI = new GoogleGenerativeAI(geminiApiKey);
+            const currentModel = userSelectedModel || 'gemini-2.0-flash-exp';
+
+            // Build conversation history in Gemini format
+            const geminiHistory = [];
+
+            for (let i = 0; i < conversationHistory.length; i++) {
+              const msg = conversationHistory[i];
+              geminiHistory.push({
+                role: msg.role === 'assistant' ? 'model' : 'user',
+                parts: Array.isArray(msg.content) ? msg.content.map(part => {
+                  if (part.type === 'text') {
+                    return { text: part.text };
+                  } else if (part.type === 'image_url') {
+                    // Convert base64 image to Gemini format
+                    const matches = part.image_url.url.match(/data:(.*?);base64,(.*)/);
+                    if (matches) {
+                      return {
+                        inlineData: {
+                          mimeType: matches[1],
+                          data: matches[2]
+                        }
+                      };
+                    }
+                  }
+                  return { text: part.text || JSON.stringify(part) };
+                }).filter(Boolean) : [{ text: msg.content }]
+              });
+            }
+
+            // Build current user message
+            const currentParts = [];
+
+            if (data.text) {
+              currentParts.push({ text: data.text });
+            }
+
+            if (data.files && data.files.length > 0) {
+              for (const file of data.files) {
+                if (file.type.startsWith('image/')) {
+                  currentParts.push({
+                    inlineData: {
+                      mimeType: file.type,
+                      data: file.data
+                    }
+                  });
+                } else {
+                  currentParts.push({ text: `[File: ${file.name}]` });
+                }
+              }
+            }
+
+            // Add to conversation history
+            conversationHistory.push({
+              role: 'user',
+              content: currentParts
+            });
+
+            console.log(`[Gemini Chat] Sending message to ${currentModel} (history: ${conversationHistory.length} messages)`);
+
+            // Create chat session with history
+            const model = genAI.getGenerativeModel({ model: currentModel });
+            const chat = model.startChat({
+              history: geminiHistory
+            });
+
+            // Send message and get response
+            const result = await chat.sendMessage(currentParts);
+            const responseText = result.response.text() || 'No response generated';
+
+            // Add assistant response to history
+            conversationHistory.push({
+              role: 'assistant',
+              content: responseText
+            });
+
+            // Send response back to client
+            clientWs.send(JSON.stringify({
+              type: 'chat_response',
+              text: responseText
+            }));
+
+            console.log(`[Gemini Chat] Response sent successfully (total messages in history: ${conversationHistory.length})`);
+          } catch (error) {
+            console.error('[Gemini Chat] Error:', error);
+            clientWs.send(JSON.stringify({
+              error: 'Chat failed',
+              type: 'chat_response',
+              text: `Error: ${error.message}`
+            }));
+          }
+          return;
+        }
 
         // Handle model selection message
         if (data.type === 'model_selection' && !hasReceivedModelSelection) {
@@ -929,6 +1038,7 @@ app.prepare().then(() => {
     let hasReceivedModelSelection = false;
     let isAudioOnlyMode = false;
     let openaiApiKey = null; // Will be provided by client
+    let conversationHistory = []; // Store conversation history for o3 chat
 
     // Audio session tracking for cost estimation
     let sessionStartTime = null;
@@ -1328,12 +1438,137 @@ app.prepare().then(() => {
 
           console.log(`User selected OpenAI model: ${userSelectedModel}, mode: ${isAudioOnlyMode ? 'audio-only' : 'vision+audio'}`);
 
-          // Connect to OpenAI
+          // For o3 model, don't connect to realtime API (it uses chat completions instead)
+          if (userSelectedModel === 'o3') {
+            clientWs.send(JSON.stringify({
+              text: `Ready to chat with OpenAI o3 (reasoning model)`
+            }));
+            return;
+          }
+
+          // Connect to OpenAI Realtime API for other models
           connectToOpenAI();
 
           clientWs.send(JSON.stringify({
             text: `Connecting to OpenAI with ${userSelectedModel}...`
           }));
+          return;
+        }
+
+        // Handle chat messages (for o3 and other chat-based models)
+        if (data.type === 'chat_message') {
+          if (!openaiApiKey) {
+            clientWs.send(JSON.stringify({
+              error: 'No API key configured',
+              type: 'chat_response',
+              text: 'Please configure your OpenAI API key'
+            }));
+            return;
+          }
+
+          // Process chat message with o3 or other models
+          try {
+            const openai = new OpenAI({ apiKey: openaiApiKey });
+            const currentModel = data.model || userSelectedModel || 'gpt-4o';
+
+            // Build current user message content
+            const messageContent = [];
+
+            if (data.text) {
+              messageContent.push({
+                type: 'text',
+                text: data.text
+              });
+            }
+
+            // Add file attachments (images)
+            if (data.files && data.files.length > 0) {
+              for (const file of data.files) {
+                if (file.type.startsWith('image/')) {
+                  messageContent.push({
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:${file.type};base64,${file.data}`
+                    }
+                  });
+                } else {
+                  // For non-image files, include file info in text
+                  messageContent.push({
+                    type: 'text',
+                    text: `[File: ${file.name}]`
+                  });
+                }
+              }
+            }
+
+            // Create current user message
+            const currentUserMessage = {
+              role: 'user',
+              content: messageContent
+            };
+
+            // Add current message to conversation history
+            conversationHistory.push(currentUserMessage);
+
+            // Build full messages array with conversation history
+            const messages = [...conversationHistory];
+
+            console.log(`[Chat] Sending message to ${currentModel} (history: ${conversationHistory.length} messages)`);
+
+            // Build API parameters based on model
+            let completionParams = {
+              model: currentModel,
+              messages: messages
+            };
+
+            // Add o3-specific parameters
+            if (currentModel === 'o3') {
+              const tokenLimit = parseInt(data.tokenLimit) || 100000;
+              let reasoningEffort = 'medium';
+
+              if (tokenLimit <= 25000) {
+                reasoningEffort = 'low';
+              } else if (tokenLimit >= 80000) {
+                reasoningEffort = 'high';
+              }
+
+              completionParams.reasoning_effort = reasoningEffort;
+              completionParams.max_completion_tokens = tokenLimit;
+
+              console.log(`[o3] Token limit: ${tokenLimit}, reasoning effort: ${reasoningEffort}`);
+            } else {
+              // For GPT-4o and other models, use standard parameters
+              completionParams.max_tokens = 4096;
+              completionParams.temperature = 0.7;
+            }
+
+            // Call OpenAI Chat Completions API
+            const completion = await openai.chat.completions.create(completionParams);
+
+            // Get assistant response
+            const responseText = completion.choices[0]?.message?.content || 'No response generated';
+
+            // Add assistant response to conversation history
+            conversationHistory.push({
+              role: 'assistant',
+              content: responseText
+            });
+
+            // Send response back to client
+            clientWs.send(JSON.stringify({
+              type: 'chat_response',
+              text: responseText
+            }));
+
+            console.log(`[Chat] Response sent successfully (total messages in history: ${conversationHistory.length})`);
+          } catch (error) {
+            console.error('[o3] Chat error:', error);
+            clientWs.send(JSON.stringify({
+              error: 'Chat failed',
+              type: 'chat_response',
+              text: `Error: ${error.message}`
+            }));
+          }
           return;
         }
 
