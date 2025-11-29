@@ -23,7 +23,7 @@ function LiveTalkPageContent() {
   const [isUserSpeaking, setIsUserSpeaking] = useState(false); // Track if user is speaking (OpenAI VAD)
   const [isChatMode, setIsChatMode] = useState(false); // Toggle between voice and chat
   const [chatMessages, setChatMessages] = useState([]); // Store chat messages
-  const [tokenLimit, setTokenLimit] = useState('high'); // Token limit for o3 model
+  const [tokenLimit, setTokenLimit] = useState(100000); // Token limit for o3 model (numeric)
 
   // Available AI providers
   const availableProviders = [
@@ -80,13 +80,6 @@ function LiveTalkPageContent() {
       recommended: false,
       requiresTokenLimit: true
     }
-  ];
-
-  // Token limit options for o3 model
-  const tokenLimitOptions = [
-    { id: 'low', name: 'Low', tokens: '20k', description: 'Basic reasoning tasks' },
-    { id: 'medium', name: 'Medium', tokens: '65k', description: 'Moderate complexity' },
-    { id: 'high', name: 'High', tokens: '100k', description: 'Complex reasoning' }
   ];
 
   // Get current available models based on provider
@@ -628,32 +621,57 @@ function LiveTalkPageContent() {
             </div>
           )}
 
-          {/* Token Limit Selection - For o3 model only */}
+          {/* Token Limit Input - For o3 model only */}
           {!hasStarted && selectedModel === 'o3' && (
             <div className="mb-4 sm:mb-6">
               <div className="flex items-center justify-between mb-2 sm:mb-3">
                 <h3 className="text-white text-base sm:text-lg md:text-xl font-semibold">Token Limit</h3>
               </div>
               <p className="text-gray-400 text-xs sm:text-sm mb-3 sm:mb-4">
-                Choose the reasoning capacity for o3 model
+                Enter the maximum reasoning tokens for o3 model (recommended: 20,000 - 100,000)
               </p>
 
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                {tokenLimitOptions.map((option) => (
+              <div className="space-y-3">
+                <input
+                  type="number"
+                  value={tokenLimit}
+                  onChange={(e) => setTokenLimit(parseInt(e.target.value) || 0)}
+                  min="1000"
+                  max="200000"
+                  step="1000"
+                  className="w-full px-4 py-3 bg-gray-700/40 border border-gray-600/50 rounded-xl text-white text-base sm:text-lg font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter token limit..."
+                />
+
+                {/* Quick presets */}
+                <div className="flex flex-wrap gap-2">
                   <button
-                    key={option.id}
-                    onClick={() => setTokenLimit(option.id)}
-                    className={`p-3 sm:p-4 rounded-lg sm:rounded-xl border transition-all ${
-                      tokenLimit === option.id
-                        ? 'bg-blue-600/60 border-blue-500 shadow-lg'
-                        : 'bg-gray-800/30 border-gray-700/50 hover:bg-gray-700/40 active:bg-gray-700/50'
-                    }`}
+                    onClick={() => setTokenLimit(20000)}
+                    className="px-3 py-1.5 bg-gray-700/40 hover:bg-gray-600/40 border border-gray-600/50 rounded-lg text-gray-300 text-xs sm:text-sm transition-all"
                   >
-                    <div className="text-white text-sm sm:text-base font-medium mb-1">{option.name}</div>
-                    <div className="text-gray-300 text-xs sm:text-sm font-semibold mb-1">{option.tokens}</div>
-                    <div className="text-gray-400 text-[10px] sm:text-xs">{option.description}</div>
+                    20K (Low)
                   </button>
-                ))}
+                  <button
+                    onClick={() => setTokenLimit(65000)}
+                    className="px-3 py-1.5 bg-gray-700/40 hover:bg-gray-600/40 border border-gray-600/50 rounded-lg text-gray-300 text-xs sm:text-sm transition-all"
+                  >
+                    65K (Medium)
+                  </button>
+                  <button
+                    onClick={() => setTokenLimit(100000)}
+                    className="px-3 py-1.5 bg-gray-700/40 hover:bg-gray-600/40 border border-gray-600/50 rounded-lg text-gray-300 text-xs sm:text-sm transition-all"
+                  >
+                    100K (High)
+                  </button>
+                </div>
+
+                {/* Validation message */}
+                {tokenLimit < 1000 && (
+                  <p className="text-red-400 text-xs">Token limit should be at least 1,000</p>
+                )}
+                {tokenLimit > 200000 && (
+                  <p className="text-yellow-400 text-xs">⚠️ Very high token limit - may be expensive</p>
+                )}
               </div>
             </div>
           )}

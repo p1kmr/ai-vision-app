@@ -1398,22 +1398,24 @@ app.prepare().then(() => {
               content: messageContent
             });
 
-            // Determine reasoning_effort based on token limit
-            const reasoningEffortMap = {
-              'low': 'low',
-              'medium': 'medium',
-              'high': 'high'
-            };
-            const reasoningEffort = reasoningEffortMap[data.tokenLimit] || 'medium';
+            // Determine reasoning_effort based on token limit value
+            const tokenLimit = parseInt(data.tokenLimit) || 100000;
+            let reasoningEffort = 'medium';
 
-            console.log(`[o3] Sending chat message with reasoning effort: ${reasoningEffort}`);
+            if (tokenLimit <= 25000) {
+              reasoningEffort = 'low';
+            } else if (tokenLimit >= 80000) {
+              reasoningEffort = 'high';
+            }
+
+            console.log(`[o3] Sending chat message with ${tokenLimit} tokens, reasoning effort: ${reasoningEffort}`);
 
             // Call OpenAI Chat Completions API
             const completion = await openai.chat.completions.create({
               model: data.model || userSelectedModel || 'o3',
               messages: messages,
               reasoning_effort: reasoningEffort,
-              max_completion_tokens: data.tokenLimit === 'low' ? 20000 : (data.tokenLimit === 'high' ? 100000 : 65000)
+              max_completion_tokens: tokenLimit
             });
 
             // Send response back to client
