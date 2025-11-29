@@ -10,8 +10,10 @@ export default function Chatbox({
 }) {
   const [inputText, setInputText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState([]);
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
   const fileInputRef = useRef(null);
-  const cameraInputRef = useRef(null);
+  const videoRef = useRef(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -62,6 +64,15 @@ export default function Chatbox({
     };
   }, []);
 
+  // Cleanup camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files);
     const newFiles = files.map(file => ({
@@ -73,8 +84,59 @@ export default function Chatbox({
     setAttachedFiles([...attachedFiles, ...newFiles]);
   };
 
-  const handleCameraCapture = (e) => {
-    handleFileSelect(e);
+  const openCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }, // Use rear camera on mobile
+        audio: false
+      });
+      setCameraStream(stream);
+      setShowCamera(true);
+
+      // Wait for video element to be available
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Camera access error:', error);
+      alert('Unable to access camera. Please ensure camera permissions are granted.');
+    }
+  };
+
+  const closeCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+
+    // Create canvas to capture photo
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(videoRef.current, 0, 0);
+
+    // Convert canvas to blob
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        const newFile = {
+          file,
+          preview: URL.createObjectURL(blob),
+          type: 'image/jpeg',
+          name: file.name
+        };
+        setAttachedFiles(prev => [...prev, newFile]);
+        closeCamera();
+      }
+    }, 'image/jpeg', 0.95);
   };
 
   const removeFile = (index) => {
@@ -102,9 +164,6 @@ export default function Chatbox({
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-    if (cameraInputRef.current) {
-      cameraInputRef.current.value = '';
-    }
   };
 
   const handleKeyDown = (e) => {
@@ -125,7 +184,41 @@ export default function Chatbox({
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-800/50 backdrop-blur-xl rounded-2xl border border-gray-700/50 overflow-hidden">
+    <div className="flex flex-col h-full bg-gray-800/50 backdrop-blur-xl rounded-2xl border border-gray-700/50 overflow-hidden relative">
+      {/* Camera Modal */}
+      {showCamera && (
+        <div className="absolute inset-0 z-50 bg-black flex flex-col">
+          {/* Camera Preview */}
+          <div className="flex-1 relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          </div>
+
+          {/* Camera Controls */}
+          <div className="p-4 bg-gray-900 flex items-center justify-between">
+            <button
+              onClick={closeCamera}
+              className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition-colors"
+            >
+              Cancel
+            </button>
+
+            <button
+              onClick={capturePhoto}
+              className="w-16 h-16 bg-white rounded-full border-4 border-gray-300 hover:border-blue-500 transition-colors flex items-center justify-center"
+            >
+              <div className="w-12 h-12 bg-white rounded-full"></div>
+            </button>
+
+            <div className="w-20"></div>
+          </div>
+        </div>
+      )}
+
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
@@ -242,7 +335,7 @@ export default function Chatbox({
         <div className="flex gap-2 items-end">
           {/* Camera button */}
           <button
-            onClick={() => cameraInputRef.current?.click()}
+            onClick={openCamera}
             className="flex-shrink-0 w-10 h-10 bg-gray-700/60 hover:bg-gray-600/60 rounded-full flex items-center justify-center transition-colors border border-gray-600/50"
             title="Take photo"
           >
@@ -261,22 +354,13 @@ export default function Chatbox({
             <span className="text-xl">📎</span>
           </button>
 
-          {/* Hidden file inputs */}
+          {/* Hidden file input */}
           <input
             ref={fileInputRef}
             type="file"
             multiple
             accept="image/*,video/*,audio/*,.pdf,.txt,.doc,.docx,.js,.py,.java,.cpp,.html,.css"
             onChange={handleFileSelect}
-            className="hidden"
-          />
-
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleCameraCapture}
             className="hidden"
           />
 
