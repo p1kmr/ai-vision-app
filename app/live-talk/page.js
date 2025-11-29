@@ -385,6 +385,35 @@ function LiveTalkPageContent() {
   };
 
   const handleStopStreaming = () => {
+    // Stop audio streams but keep WebSocket connection for chat
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    if (pcm16CaptureRef.current) {
+      pcm16CaptureRef.current.stop();
+      pcm16CaptureRef.current = null;
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.close();
+      audioPlayerRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => {
+        track.stop();
+        console.log(`Stopped ${track.kind} track`);
+      });
+      mediaStreamRef.current = null;
+    }
+
+    // Switch to chat mode and keep session active
+    setIsChatMode(true);
+    setAiResponse('Audio stopped - Continue chatting via text');
+    setUserTranscription('');
+    setIsUserSpeaking(false);
+  };
+
+  const handleEndSession = () => {
+    // Completely end the session
     cleanup();
 
     if (mediaStreamRef.current) {
@@ -400,6 +429,8 @@ function LiveTalkPageContent() {
     setAiResponse('Select a model and click Start to begin');
     setError('');
     setSessionTime(0);
+    setIsChatMode(false);
+    setChatMessages([]);
   };
 
   const handleLogout = async () => {
@@ -746,11 +777,21 @@ function LiveTalkPageContent() {
               </>
             ) : (
               <>
+                {/* Stop Audio button - only show in voice mode */}
+                {!isChatMode && selectedModel !== 'o3' && (
+                  <button
+                    onClick={handleStopStreaming}
+                    className="w-full sm:w-auto px-6 sm:px-8 lg:px-10 py-3 sm:py-3.5 lg:py-4 bg-orange-600 hover:bg-orange-500 active:bg-orange-700 text-white rounded-full font-semibold text-sm sm:text-base lg:text-lg transition-all transform hover:scale-105 active:scale-95 shadow-lg"
+                  >
+                    Stop Audio
+                  </button>
+                )}
+                {/* End Session button */}
                 <button
-                  onClick={handleStopStreaming}
+                  onClick={handleEndSession}
                   className="w-full sm:w-auto px-6 sm:px-8 lg:px-10 py-3 sm:py-3.5 lg:py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-full font-semibold text-sm sm:text-base lg:text-lg transition-all transform hover:scale-105 active:scale-95 shadow-lg"
                 >
-                  Stop Audio
+                  End Session
                 </button>
                 <button
                   onClick={handleLogout}
