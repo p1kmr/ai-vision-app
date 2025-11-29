@@ -24,6 +24,7 @@ function LiveTalkPageContent() {
   const [isChatMode, setIsChatMode] = useState(false); // Toggle between voice and chat
   const [chatMessages, setChatMessages] = useState([]); // Store chat messages
   const [tokenLimit, setTokenLimit] = useState(100000); // Token limit for o3 model (numeric)
+  const [isAiTyping, setIsAiTyping] = useState(false); // Track if AI is generating response
 
   // Available AI providers
   const availableProviders = [
@@ -255,6 +256,7 @@ function LiveTalkPageContent() {
             timestamp: Date.now()
           };
           setChatMessages(prev => [...prev, aiMessage]);
+          setIsAiTyping(false); // AI finished typing
         }
 
         // Handle AI response text (for voice mode)
@@ -264,6 +266,7 @@ function LiveTalkPageContent() {
 
         if (data.error) {
           setError(data.error);
+          setIsAiTyping(false); // Stop typing indicator on error
         }
       } catch (err) {
         console.error('Message parse error:', err);
@@ -431,6 +434,7 @@ function LiveTalkPageContent() {
     setSessionTime(0);
     setIsChatMode(false);
     setChatMessages([]);
+    setIsAiTyping(false);
   };
 
   const handleLogout = async () => {
@@ -468,6 +472,9 @@ function LiveTalkPageContent() {
       timestamp: Date.now()
     };
     setChatMessages(prev => [...prev, userMessage]);
+
+    // Show AI typing indicator
+    setIsAiTyping(true);
 
     // Convert files to base64
     const filesData = await Promise.all(
@@ -714,7 +721,7 @@ function LiveTalkPageContent() {
                 messages={chatMessages}
                 onSendMessage={handleSendChatMessage}
                 isConnected={isConnected}
-                isLoading={false}
+                isLoading={isAiTyping}
               />
             </div>
           ) : (
