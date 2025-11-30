@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
+// Configure API route for long-running requests (o3 can take 2-5 minutes)
+export const maxDuration = 300; // 5 minutes (Vercel Pro plan supports up to 300s)
+export const dynamic = 'force-dynamic'; // Disable static optimization
+
 export async function POST(request) {
   try {
     const body = await request.json();

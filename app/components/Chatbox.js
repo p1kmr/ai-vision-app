@@ -1,6 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
+import remarkGfm from 'remark-gfm';
 
 export default function Chatbox({
   messages,
@@ -248,9 +252,120 @@ export default function Chatbox({
                     : 'bg-gray-700/60 text-gray-100'
                 }`}
               >
-                {/* Text content */}
+                {/* Text content with markdown rendering */}
                 {msg.text && (
-                  <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                  <div className="prose prose-invert max-w-none">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        // Custom code block renderer
+                        code({ node, inline, className, children, ...props }) {
+                          const match = /language-(\w+)/.exec(className || '');
+                          const language = match ? match[1] : '';
+
+                          return !inline ? (
+                            <div className="relative group my-2">
+                              {/* Language label */}
+                              {language && (
+                                <div className="absolute top-0 right-0 px-2 py-1 text-xs text-gray-400 bg-gray-800 rounded-bl rounded-tr">
+                                  {language}
+                                </div>
+                              )}
+                              {/* Code block with syntax highlighting */}
+                              <SyntaxHighlighter
+                                style={vscDarkPlus}
+                                language={language || 'text'}
+                                PreTag="div"
+                                customStyle={{
+                                  margin: 0,
+                                  borderRadius: '0.5rem',
+                                  padding: '1rem',
+                                  fontSize: '0.875rem',
+                                  backgroundColor: '#1e1e1e',
+                                }}
+                                {...props}
+                              >
+                                {String(children).replace(/\n$/, '')}
+                              </SyntaxHighlighter>
+                            </div>
+                          ) : (
+                            // Inline code
+                            <code
+                              className="px-1.5 py-0.5 rounded bg-gray-800/80 text-blue-300 font-mono text-sm"
+                              {...props}
+                            >
+                              {children}
+                            </code>
+                          );
+                        },
+                        // Custom paragraph renderer
+                        p({ children }) {
+                          return <p className="mb-2 last:mb-0 whitespace-pre-wrap break-words">{children}</p>;
+                        },
+                        // Custom list renderers
+                        ul({ children }) {
+                          return <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>;
+                        },
+                        ol({ children }) {
+                          return <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>;
+                        },
+                        li({ children }) {
+                          return <li className="ml-4">{children}</li>;
+                        },
+                        // Custom heading renderers
+                        h1({ children }) {
+                          return <h1 className="text-2xl font-bold mb-2 mt-4">{children}</h1>;
+                        },
+                        h2({ children }) {
+                          return <h2 className="text-xl font-bold mb-2 mt-3">{children}</h2>;
+                        },
+                        h3({ children }) {
+                          return <h3 className="text-lg font-bold mb-2 mt-2">{children}</h3>;
+                        },
+                        // Custom link renderer
+                        a({ href, children }) {
+                          return (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 hover:text-blue-300 underline"
+                            >
+                              {children}
+                            </a>
+                          );
+                        },
+                        // Custom blockquote renderer
+                        blockquote({ children }) {
+                          return (
+                            <blockquote className="border-l-4 border-gray-600 pl-4 italic my-2">
+                              {children}
+                            </blockquote>
+                          );
+                        },
+                        // Custom table renderers
+                        table({ children }) {
+                          return (
+                            <div className="overflow-x-auto my-2">
+                              <table className="min-w-full border border-gray-600">{children}</table>
+                            </div>
+                          );
+                        },
+                        th({ children }) {
+                          return (
+                            <th className="border border-gray-600 px-4 py-2 bg-gray-800 font-bold">
+                              {children}
+                            </th>
+                          );
+                        },
+                        td({ children }) {
+                          return <td className="border border-gray-600 px-4 py-2">{children}</td>;
+                        },
+                      }}
+                    >
+                      {msg.text}
+                    </ReactMarkdown>
+                  </div>
                 )}
 
                 {/* File attachments */}
