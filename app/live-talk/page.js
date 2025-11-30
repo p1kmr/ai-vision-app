@@ -127,11 +127,62 @@ function LiveTalkPageContent() {
   const handleStart = async () => {
     setHasStarted(true);
 
-    // For o3 model, skip audio initialization and connect directly
+    // For o3 model, skip audio and WebSocket - use direct API calls
     if (selectedModel === 'o3') {
-      setAiResponse('Connecting to OpenAI o3...');
       setIsChatMode(true); // Automatically switch to chat mode for o3
-      connectWebSocket(null);
+      setIsConnected(true); // No WebSocket needed for chat-only
+      setAiResponse('Ready to chat with o3');
+
+      // Create a simple WebSocket just for sending/receiving chat messages
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/openai`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        // Send API key and model selection
+        const openaiApiKey = sessionStorage.getItem('openai_api_key');
+        ws.send(JSON.stringify({
+          type: 'model_selection',
+          model: 'o3',
+          mode: 'chat_only',
+          apiKey: openaiApiKey
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'chat_response') {
+            // Add AI response to chat
+            const aiMessage = {
+              role: 'assistant',
+              text: data.text,
+              timestamp: Date.now()
+            };
+            setChatMessages(prev => [...prev, aiMessage]);
+            setIsAiTyping(false);
+          } else if (data.error) {
+            setError(data.text || data.error);
+            setIsAiTyping(false);
+          }
+        } catch (err) {
+          console.error('Error parsing message:', err);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setError('Connection error');
+        setIsAiTyping(false);
+      };
+
+      ws.onclose = () => {
+        setIsConnected(false);
+        setAiResponse('Disconnected');
+      };
+
       return;
     }
 
@@ -716,7 +767,7 @@ function LiveTalkPageContent() {
 
           {/* Chat Mode - Show Chatbox */}
           {hasStarted && isChatMode ? (
-            <div className="mb-4 sm:mb-6 h-[400px] sm:h-[500px] lg:h-[600px]">
+            <div className="mb-4 sm:mb-6 h-[calc(100vh-280px)] sm:h-[calc(100vh-300px)] min-h-[500px]">
               <Chatbox
                 messages={chatMessages}
                 onSendMessage={handleSendChatMessage}
