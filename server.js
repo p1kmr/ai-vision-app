@@ -819,31 +819,45 @@ app.prepare().then(() => {
             const genAI = new GoogleGenerativeAI(geminiApiKey);
             const currentModel = userSelectedModel || 'gemini-2.0-flash-exp';
 
-            // Build conversation history in Gemini format
-            const geminiHistory = [];
+            // Use client-sent conversation history if available (prevents history loss on reconnect)
+            let geminiHistory = [];
 
-            for (let i = 0; i < conversationHistory.length; i++) {
-              const msg = conversationHistory[i];
-              geminiHistory.push({
-                role: msg.role === 'assistant' ? 'model' : 'user',
-                parts: Array.isArray(msg.content) ? msg.content.map(part => {
-                  if (part.type === 'text') {
-                    return { text: part.text };
-                  } else if (part.type === 'image_url') {
-                    // Convert base64 image to Gemini format
-                    const matches = part.image_url.url.match(/data:(.*?);base64,(.*)/);
-                    if (matches) {
-                      return {
-                        inlineData: {
-                          mimeType: matches[1],
-                          data: matches[2]
+            if (data.conversationHistory && data.conversationHistory.length > 0) {
+              // Client sent full conversation history - convert to Gemini format
+              console.log(`[Gemini Chat] Using client-sent history (${data.conversationHistory.length} messages)`);
+
+              geminiHistory = data.conversationHistory
+                .filter(msg => msg.role !== 'user' || msg !== data.conversationHistory[data.conversationHistory.length - 1]) // Exclude last message (will be sent separately)
+                .map(msg => {
+                  const parts = [];
+
+                  if (msg.text) {
+                    parts.push({ text: msg.text });
+                  }
+
+                  // Add file attachments for user messages
+                  if (msg.role === 'user' && msg.files && msg.files.length > 0) {
+                    for (const file of msg.files) {
+                      if (file.type && file.type.startsWith('image/')) {
+                        // Extract base64 data from preview URL if available
+                        const matches = (file.preview || '').match(/data:(.*?);base64,(.*)/);
+                        if (matches) {
+                          parts.push({
+                            inlineData: {
+                              mimeType: matches[1],
+                              data: matches[2]
+                            }
+                          });
                         }
-                      };
+                      }
                     }
                   }
-                  return { text: part.text || JSON.stringify(part) };
-                }).filter(Boolean) : [{ text: msg.content }]
-              });
+
+                  return {
+                    role: msg.role === 'assistant' ? 'model' : 'user',
+                    parts: parts.length > 0 ? parts : [{ text: msg.text || '' }]
+                  };
+                });
             }
 
             // Build current user message
@@ -868,13 +882,7 @@ app.prepare().then(() => {
               }
             }
 
-            // Add to conversation history
-            conversationHistory.push({
-              role: 'user',
-              content: currentParts
-            });
-
-            console.log(`[Gemini Chat] Sending message to ${currentModel} (history: ${conversationHistory.length} messages)`);
+            console.log(`[Gemini Chat] Sending to ${currentModel} (${geminiHistory.length + 1} messages in context)`);
 
             // Create chat session with history
             const model = genAI.getGenerativeModel({ model: currentModel });
@@ -885,12 +893,6 @@ app.prepare().then(() => {
             // Send message and get response
             const result = await chat.sendMessage(currentParts);
             const responseText = result.response.text() || 'No response generated';
-
-            // Add assistant response to history
-            conversationHistory.push({
-              role: 'assistant',
-              content: responseText
-            });
 
             // Send response back to client
             clientWs.send(JSON.stringify({
@@ -1471,49 +1473,81 @@ app.prepare().then(() => {
             const openai = new OpenAI({ apiKey: openaiApiKey });
             const currentModel = data.model || userSelectedModel || 'gpt-4o';
 
-            // Build current user message content
-            const messageContent = [];
+            // Use client-sent conversation history if available (prevents history loss on reconnect)
+            let messages = [];
 
-            if (data.text) {
-              messageContent.push({
-                type: 'text',
-                text: data.text
-              });
-            }
+            if (data.conversationHistory && data.conversationHistory.length > 0) {
+              // Client sent full conversation history - use it to build messages
+              console.log(`[Chat] Using client-sent history (${data.conversationHistory.length} messages)`);
 
-            // Add file attachments (images)
-            if (data.files && data.files.length > 0) {
-              for (const file of data.files) {
-                if (file.type.startsWith('image/')) {
-                  messageContent.push({
-                    type: 'image_url',
-                    image_url: {
-                      url: `data:${file.type};base64,${file.data}`
-                    }
-                  });
-                } else {
-                  // For non-image files, include file info in text
+              messages = data.conversationHistory.map(msg => {
+                const messageContent = [];
+
+                if (msg.text) {
                   messageContent.push({
                     type: 'text',
-                    text: `[File: ${file.name}]`
+                    text: msg.text
                   });
                 }
+
+                // Add file attachments for user messages
+                if (msg.role === 'user' && msg.files && msg.files.length > 0) {
+                  for (const file of msg.files) {
+                    if (file.type && file.type.startsWith('image/')) {
+                      messageContent.push({
+                        type: 'image_url',
+                        image_url: {
+                          url: file.preview || `data:${file.type};base64,${file.data || ''}`
+                        }
+                      });
+                    }
+                  }
+                }
+
+                return {
+                  role: msg.role,
+                  content: messageContent.length === 1 && messageContent[0].type === 'text'
+                    ? messageContent[0].text
+                    : messageContent
+                };
+              });
+            } else {
+              // Fallback: build from current message only (legacy support)
+              const messageContent = [];
+
+              if (data.text) {
+                messageContent.push({
+                  type: 'text',
+                  text: data.text
+                });
               }
+
+              // Add file attachments (images)
+              if (data.files && data.files.length > 0) {
+                for (const file of data.files) {
+                  if (file.type.startsWith('image/')) {
+                    messageContent.push({
+                      type: 'image_url',
+                      image_url: {
+                        url: `data:${file.type};base64,${file.data}`
+                      }
+                    });
+                  } else {
+                    messageContent.push({
+                      type: 'text',
+                      text: `[File: ${file.name}]`
+                    });
+                  }
+                }
+              }
+
+              messages = [{
+                role: 'user',
+                content: messageContent
+              }];
             }
 
-            // Create current user message
-            const currentUserMessage = {
-              role: 'user',
-              content: messageContent
-            };
-
-            // Add current message to conversation history
-            conversationHistory.push(currentUserMessage);
-
-            // Build full messages array with conversation history
-            const messages = [...conversationHistory];
-
-            console.log(`[Chat] Sending message to ${currentModel} (history: ${conversationHistory.length} messages)`);
+            console.log(`[Chat] Sending to ${currentModel} (${messages.length} messages in context)`);
 
             // Build API parameters based on model
             let completionParams = {
@@ -1548,21 +1582,15 @@ app.prepare().then(() => {
             // Get assistant response
             const responseText = completion.choices[0]?.message?.content || 'No response generated';
 
-            // Add assistant response to conversation history
-            conversationHistory.push({
-              role: 'assistant',
-              content: responseText
-            });
-
             // Send response back to client
             clientWs.send(JSON.stringify({
               type: 'chat_response',
               text: responseText
             }));
 
-            console.log(`[Chat] Response sent successfully (total messages in history: ${conversationHistory.length})`);
+            console.log(`[Chat] Response sent successfully`);
           } catch (error) {
-            console.error('[o3] Chat error:', error);
+            console.error('[Chat] Error:', error);
             clientWs.send(JSON.stringify({
               error: 'Chat failed',
               type: 'chat_response',

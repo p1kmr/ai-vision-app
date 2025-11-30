@@ -127,11 +127,62 @@ function LiveTalkPageContent() {
   const handleStart = async () => {
     setHasStarted(true);
 
-    // For o3 model, skip audio initialization and connect directly
+    // For o3 model, skip audio and WebSocket - use direct API calls
     if (selectedModel === 'o3') {
-      setAiResponse('Connecting to OpenAI o3...');
       setIsChatMode(true); // Automatically switch to chat mode for o3
-      connectWebSocket(null);
+      setIsConnected(true); // No WebSocket needed for chat-only
+      setAiResponse('Ready to chat with o3');
+
+      // Create a simple WebSocket just for sending/receiving chat messages
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/openai`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        // Send API key and model selection
+        const openaiApiKey = sessionStorage.getItem('openai_api_key');
+        ws.send(JSON.stringify({
+          type: 'model_selection',
+          model: 'o3',
+          mode: 'chat_only',
+          apiKey: openaiApiKey
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'chat_response') {
+            // Add AI response to chat
+            const aiMessage = {
+              role: 'assistant',
+              text: data.text,
+              timestamp: Date.now()
+            };
+            setChatMessages(prev => [...prev, aiMessage]);
+            setIsAiTyping(false);
+          } else if (data.error) {
+            setError(data.text || data.error);
+            setIsAiTyping(false);
+          }
+        } catch (err) {
+          console.error('Error parsing message:', err);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setError('Connection error');
+        setIsAiTyping(false);
+      };
+
+      ws.onclose = () => {
+        setIsConnected(false);
+        setAiResponse('Disconnected');
+      };
+
       return;
     }
 
@@ -207,14 +258,17 @@ function LiveTalkPageContent() {
         startAudioStreaming(ws, stream);
       }
 
-      // Auto-reconnect before session limit
+      // Auto-reconnect before session limit (NOT for o3 chat - would lose conversation history)
       // Note: Free tier has 200 requests/day limit. Reconnecting every 8 minutes = ~180 requests/day
       // This stays safely within free tier limits
-      reconnectTimeoutRef.current = setTimeout(() => {
-        console.log('Auto-reconnecting to maintain session...');
-        ws.close();
-        connectWebSocket(stream);
-      }, 480000); // 8 minutes (480 seconds) to stay within free tier 200 RPD limit
+      // SKIP for o3 or chat mode to maintain conversation history
+      if (selectedModel !== 'o3' && !isChatMode) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          console.log('Auto-reconnecting to maintain session...');
+          ws.close();
+          connectWebSocket(stream);
+        }, 480000); // 8 minutes (480 seconds) to stay within free tier 200 RPD limit
+      }
     };
 
     ws.onmessage = async (event) => {
@@ -464,19 +518,7 @@ function LiveTalkPageContent() {
       return;
     }
 
-    // Add user message to chat
-    const userMessage = {
-      role: 'user',
-      text: messageData.text,
-      files: messageData.files,
-      timestamp: Date.now()
-    };
-    setChatMessages(prev => [...prev, userMessage]);
-
-    // Show AI typing indicator
-    setIsAiTyping(true);
-
-    // Convert files to base64
+    // Convert files to base64 first
     const filesData = await Promise.all(
       messageData.files.map(async (fileObj) => {
         return new Promise((resolve) => {
@@ -493,13 +535,36 @@ function LiveTalkPageContent() {
       })
     );
 
-    // Send to server
+    // Add user message to chat
+    const userMessage = {
+      role: 'user',
+      text: messageData.text,
+      files: messageData.files,
+      timestamp: Date.now()
+    };
+
+    // Get current conversation history (includes the new message we're about to send)
+    const updatedChatMessages = [...chatMessages, userMessage];
+    setChatMessages(updatedChatMessages);
+
+    // Show AI typing indicator
+    setIsAiTyping(true);
+
+    // Build conversation history for server (convert client messages to API format)
+    const conversationHistory = updatedChatMessages.map(msg => ({
+      role: msg.role,
+      text: msg.text,
+      files: msg.role === 'user' ? (msg.files || []) : undefined
+    })).filter(msg => msg.role === 'user' || msg.role === 'assistant');
+
+    // Send to server with full conversation history
     wsRef.current.send(JSON.stringify({
       type: 'chat_message',
       text: messageData.text,
       files: filesData,
       model: selectedModel,
       tokenLimit: tokenLimit,
+      conversationHistory: conversationHistory, // Send full history for context
       timestamp: Date.now()
     }));
   };
@@ -716,7 +781,7 @@ function LiveTalkPageContent() {
 
           {/* Chat Mode - Show Chatbox */}
           {hasStarted && isChatMode ? (
-            <div className="mb-4 sm:mb-6 h-[400px] sm:h-[500px] lg:h-[600px]">
+            <div className="mb-4 sm:mb-6 h-[calc(100vh-280px)] sm:h-[calc(100vh-300px)] min-h-[500px]">
               <Chatbox
                 messages={chatMessages}
                 onSendMessage={handleSendChatMessage}
