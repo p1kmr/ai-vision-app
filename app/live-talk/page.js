@@ -258,14 +258,17 @@ function LiveTalkPageContent() {
         startAudioStreaming(ws, stream);
       }
 
-      // Auto-reconnect before session limit
+      // Auto-reconnect before session limit (NOT for o3 chat - would lose conversation history)
       // Note: Free tier has 200 requests/day limit. Reconnecting every 8 minutes = ~180 requests/day
       // This stays safely within free tier limits
-      reconnectTimeoutRef.current = setTimeout(() => {
-        console.log('Auto-reconnecting to maintain session...');
-        ws.close();
-        connectWebSocket(stream);
-      }, 480000); // 8 minutes (480 seconds) to stay within free tier 200 RPD limit
+      // SKIP for o3 or chat mode to maintain conversation history
+      if (selectedModel !== 'o3' && !isChatMode) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          console.log('Auto-reconnecting to maintain session...');
+          ws.close();
+          connectWebSocket(stream);
+        }, 480000); // 8 minutes (480 seconds) to stay within free tier 200 RPD limit
+      }
     };
 
     ws.onmessage = async (event) => {
@@ -515,19 +518,7 @@ function LiveTalkPageContent() {
       return;
     }
 
-    // Add user message to chat
-    const userMessage = {
-      role: 'user',
-      text: messageData.text,
-      files: messageData.files,
-      timestamp: Date.now()
-    };
-    setChatMessages(prev => [...prev, userMessage]);
-
-    // Show AI typing indicator
-    setIsAiTyping(true);
-
-    // Convert files to base64
+    // Convert files to base64 first
     const filesData = await Promise.all(
       messageData.files.map(async (fileObj) => {
         return new Promise((resolve) => {
@@ -544,13 +535,36 @@ function LiveTalkPageContent() {
       })
     );
 
-    // Send to server
+    // Add user message to chat
+    const userMessage = {
+      role: 'user',
+      text: messageData.text,
+      files: messageData.files,
+      timestamp: Date.now()
+    };
+
+    // Get current conversation history (includes the new message we're about to send)
+    const updatedChatMessages = [...chatMessages, userMessage];
+    setChatMessages(updatedChatMessages);
+
+    // Show AI typing indicator
+    setIsAiTyping(true);
+
+    // Build conversation history for server (convert client messages to API format)
+    const conversationHistory = updatedChatMessages.map(msg => ({
+      role: msg.role,
+      text: msg.text,
+      files: msg.role === 'user' ? (msg.files || []) : undefined
+    })).filter(msg => msg.role === 'user' || msg.role === 'assistant');
+
+    // Send to server with full conversation history
     wsRef.current.send(JSON.stringify({
       type: 'chat_message',
       text: messageData.text,
       files: filesData,
       model: selectedModel,
       tokenLimit: tokenLimit,
+      conversationHistory: conversationHistory, // Send full history for context
       timestamp: Date.now()
     }));
   };
