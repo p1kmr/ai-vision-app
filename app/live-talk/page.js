@@ -127,62 +127,11 @@ function LiveTalkPageContent() {
   const handleStart = async () => {
     setHasStarted(true);
 
-    // For o3 model, skip audio and WebSocket - use direct API calls
+    // For o3 model, use simple API calls (no WebSocket needed for chat-only)
     if (selectedModel === 'o3') {
       setIsChatMode(true); // Automatically switch to chat mode for o3
-      setIsConnected(true); // No WebSocket needed for chat-only
+      setIsConnected(true); // Ready immediately (no connection needed)
       setAiResponse('Ready to chat with o3');
-
-      // Create a simple WebSocket just for sending/receiving chat messages
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/openai`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        // Send API key and model selection
-        const openaiApiKey = sessionStorage.getItem('openai_api_key');
-        ws.send(JSON.stringify({
-          type: 'model_selection',
-          model: 'o3',
-          mode: 'chat_only',
-          apiKey: openaiApiKey
-        }));
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          if (data.type === 'chat_response') {
-            // Add AI response to chat
-            const aiMessage = {
-              role: 'assistant',
-              text: data.text,
-              timestamp: Date.now()
-            };
-            setChatMessages(prev => [...prev, aiMessage]);
-            setIsAiTyping(false);
-          } else if (data.error) {
-            setError(data.text || data.error);
-            setIsAiTyping(false);
-          }
-        } catch (err) {
-          console.error('Error parsing message:', err);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setError('Connection error');
-        setIsAiTyping(false);
-      };
-
-      ws.onclose = () => {
-        setIsConnected(false);
-        setAiResponse('Disconnected');
-      };
-
       return;
     }
 
@@ -513,11 +462,6 @@ function LiveTalkPageContent() {
   };
 
   const handleSendChatMessage = async (messageData) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setError('Not connected to AI');
-      return;
-    }
-
     // Convert files to base64 first
     const filesData = await Promise.all(
       messageData.files.map(async (fileObj) => {
@@ -550,21 +494,136 @@ function LiveTalkPageContent() {
     // Show AI typing indicator
     setIsAiTyping(true);
 
-    // Build conversation history for server (convert client messages to API format)
-    const conversationHistory = updatedChatMessages.map(msg => ({
-      role: msg.role,
-      text: msg.text,
-      files: msg.role === 'user' ? (msg.files || []) : undefined
-    })).filter(msg => msg.role === 'user' || msg.role === 'assistant');
+    // For o3 model, use simple API call (no WebSocket)
+    if (selectedModel === 'o3') {
+      try {
+        // Validate API key exists
+        const openaiApiKey = sessionStorage.getItem('openai_api_key');
+        if (!openaiApiKey) {
+          setError('OpenAI API key not configured. Please set it in Settings.');
+          setIsAiTyping(false);
+          return;
+        }
 
-    // Send to server with full conversation history
+        // Build messages array for OpenAI API
+        const messages = updatedChatMessages.map((msg, index) => {
+          const isCurrentMessage = index === updatedChatMessages.length - 1;
+          const messageContent = [];
+
+          if (msg.text) {
+            messageContent.push({ type: 'text', text: msg.text });
+          }
+
+          // Add images only for current message (not history)
+          if (isCurrentMessage && msg.role === 'user' && filesData.length > 0) {
+            for (const file of filesData) {
+              if (file.type.startsWith('image/')) {
+                messageContent.push({
+                  type: 'image_url',
+                  image_url: { url: `data:${file.type};base64,${file.data}` }
+                });
+              }
+            }
+          }
+
+          return {
+            role: msg.role,
+            content: messageContent.length === 1 ? messageContent[0].text : messageContent
+          };
+        });
+
+        // Call API route with timeout (60 seconds for o3 reasoning)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+        try {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages,
+              model: selectedModel,
+              apiKey: openaiApiKey,
+              tokenLimit: tokenLimit
+            }),
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          // Check HTTP status
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+
+          if (data.error) {
+            setError(data.error);
+            setIsAiTyping(false);
+            return;
+          }
+
+          // Add AI response to chat
+          const aiMessage = {
+            role: 'assistant',
+            text: data.text,
+            timestamp: Date.now()
+          };
+          setChatMessages(prev => [...prev, aiMessage]);
+          setIsAiTyping(false);
+
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+
+          if (fetchError.name === 'AbortError') {
+            setError('Request timed out. o3 is taking too long to respond.');
+          } else {
+            throw fetchError;
+          }
+        }
+
+      } catch (error) {
+        console.error('API call error:', error);
+        setError(error.message || 'Failed to send message');
+        setIsAiTyping(false);
+      }
+      return;
+    }
+
+    // For other models (voice mode), check WebSocket connection
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setError('Not connected to AI');
+      setIsAiTyping(false);
+      return;
+    }
+
+    // Build conversation history for server WITHOUT file data (only text and metadata)
+    // This prevents sending all previous images with every new message
+    const conversationHistory = updatedChatMessages.map(msg => {
+      const historyMsg = {
+        role: msg.role,
+        text: msg.text
+      };
+
+      // Only include file metadata (not actual file data) for history
+      if (msg.role === 'user' && msg.files && msg.files.length > 0) {
+        historyMsg.fileCount = msg.files.length;
+        historyMsg.fileNames = msg.files.map(f => f.name).join(', ');
+      }
+
+      return historyMsg;
+    }).filter(msg => msg.role === 'user' || msg.role === 'assistant');
+
+    // Send to server via WebSocket with full conversation history (text only) + current message files
     wsRef.current.send(JSON.stringify({
       type: 'chat_message',
       text: messageData.text,
-      files: filesData,
+      files: filesData, // Only current message files with base64 data
       model: selectedModel,
       tokenLimit: tokenLimit,
-      conversationHistory: conversationHistory, // Send full history for context
+      conversationHistory: conversationHistory, // Text-only history without file data
       timestamp: Date.now()
     }));
   };
