@@ -532,9 +532,10 @@ function LiveTalkPageContent() {
           };
         });
 
-        // Call API route with timeout (60 seconds for o3 reasoning)
+        // Call API route with extended timeout for o3 reasoning
+        // o3 can take 2-5 minutes depending on complexity and reasoning_effort
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
 
         try {
           const response = await fetch('/api/chat', {

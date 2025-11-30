@@ -2,6 +2,15 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  // Configure API routes timeout for long-running requests (o3 reasoning)
+  // This applies to serverless function execution time
+  experimental: {
+    // Maximum execution time for API routes (in seconds)
+    // Default is 10s for dev, 60s for Vercel Hobby, 300s for Pro
+    // For o3, we need at least 5 minutes (300 seconds)
+    proxyTimeout: 300000, // 5 minutes in milliseconds
+  },
+
   // Enable WebSocket support
   webpack: (config) => {
     config.externals.push({
