@@ -127,72 +127,11 @@ function LiveTalkPageContent() {
   const handleStart = async () => {
     setHasStarted(true);
 
-    // For o3 model, skip audio and WebSocket - use direct API calls
+    // For o3 model, use simple API calls (no WebSocket needed for chat-only)
     if (selectedModel === 'o3') {
       setIsChatMode(true); // Automatically switch to chat mode for o3
-      setIsConnected(true); // No WebSocket needed for chat-only
+      setIsConnected(true); // Ready immediately (no connection needed)
       setAiResponse('Ready to chat with o3');
-
-      // Create a simple WebSocket just for sending/receiving chat messages
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/openai`;
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        // Send API key and model selection
-        const openaiApiKey = sessionStorage.getItem('openai_api_key');
-        ws.send(JSON.stringify({
-          type: 'model_selection',
-          model: 'o3',
-          mode: 'chat_only',
-          apiKey: openaiApiKey
-        }));
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          if (data.type === 'chat_response') {
-            // Add AI response to chat
-            const aiMessage = {
-              role: 'assistant',
-              text: data.text,
-              timestamp: Date.now()
-            };
-            setChatMessages(prev => [...prev, aiMessage]);
-            setIsAiTyping(false);
-          } else if (data.error) {
-            setError(data.text || data.error);
-            setIsAiTyping(false);
-          }
-        } catch (err) {
-          console.error('Error parsing message:', err);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setError('Connection error - check console for details');
-        setIsAiTyping(false);
-      };
-
-      ws.onclose = (event) => {
-        console.log(`WebSocket closed - Code: ${event.code}, Reason: ${event.reason}`);
-        setIsConnected(false);
-        setAiResponse('Disconnected');
-
-        // Common close codes:
-        // 1000 = Normal closure
-        // 1001 = Going away
-        // 1006 = Abnormal closure (no close frame, often network or payload too large)
-        // 1009 = Message too big
-        if (event.code === 1009 || event.code === 1006) {
-          setError('Message too large - try fewer or smaller images');
-        }
-      };
-
       return;
     }
 
@@ -523,11 +462,6 @@ function LiveTalkPageContent() {
   };
 
   const handleSendChatMessage = async (messageData) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setError('Not connected to AI');
-      return;
-    }
-
     // Convert files to base64 first
     const filesData = await Promise.all(
       messageData.files.map(async (fileObj) => {
@@ -560,6 +494,81 @@ function LiveTalkPageContent() {
     // Show AI typing indicator
     setIsAiTyping(true);
 
+    // For o3 model, use simple API call (no WebSocket)
+    if (selectedModel === 'o3') {
+      try {
+        // Build messages array for OpenAI API
+        const messages = updatedChatMessages.map((msg, index) => {
+          const isCurrentMessage = index === updatedChatMessages.length - 1;
+          const messageContent = [];
+
+          if (msg.text) {
+            messageContent.push({ type: 'text', text: msg.text });
+          }
+
+          // Add images only for current message (not history)
+          if (isCurrentMessage && msg.role === 'user' && filesData.length > 0) {
+            for (const file of filesData) {
+              if (file.type.startsWith('image/')) {
+                messageContent.push({
+                  type: 'image_url',
+                  image_url: { url: `data:${file.type};base64,${file.data}` }
+                });
+              }
+            }
+          }
+
+          return {
+            role: msg.role,
+            content: messageContent.length === 1 ? messageContent[0].text : messageContent
+          };
+        });
+
+        // Call API route
+        const openaiApiKey = sessionStorage.getItem('openai_api_key');
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages,
+            model: selectedModel,
+            apiKey: openaiApiKey,
+            tokenLimit: tokenLimit
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+          setError(data.error);
+          setIsAiTyping(false);
+          return;
+        }
+
+        // Add AI response to chat
+        const aiMessage = {
+          role: 'assistant',
+          text: data.text,
+          timestamp: Date.now()
+        };
+        setChatMessages(prev => [...prev, aiMessage]);
+        setIsAiTyping(false);
+
+      } catch (error) {
+        console.error('API call error:', error);
+        setError('Failed to send message');
+        setIsAiTyping(false);
+      }
+      return;
+    }
+
+    // For other models (voice mode), check WebSocket connection
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setError('Not connected to AI');
+      setIsAiTyping(false);
+      return;
+    }
+
     // Build conversation history for server WITHOUT file data (only text and metadata)
     // This prevents sending all previous images with every new message
     const conversationHistory = updatedChatMessages.map(msg => {
@@ -577,7 +586,7 @@ function LiveTalkPageContent() {
       return historyMsg;
     }).filter(msg => msg.role === 'user' || msg.role === 'assistant');
 
-    // Send to server with full conversation history (text only) + current message files
+    // Send to server via WebSocket with full conversation history (text only) + current message files
     wsRef.current.send(JSON.stringify({
       type: 'chat_message',
       text: messageData.text,
