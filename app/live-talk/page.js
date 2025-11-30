@@ -174,13 +174,23 @@ function LiveTalkPageContent() {
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        setError('Connection error');
+        setError('Connection error - check console for details');
         setIsAiTyping(false);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        console.log(`WebSocket closed - Code: ${event.code}, Reason: ${event.reason}`);
         setIsConnected(false);
         setAiResponse('Disconnected');
+
+        // Common close codes:
+        // 1000 = Normal closure
+        // 1001 = Going away
+        // 1006 = Abnormal closure (no close frame, often network or payload too large)
+        // 1009 = Message too big
+        if (event.code === 1009 || event.code === 1006) {
+          setError('Message too large - try fewer or smaller images');
+        }
       };
 
       return;
@@ -550,21 +560,31 @@ function LiveTalkPageContent() {
     // Show AI typing indicator
     setIsAiTyping(true);
 
-    // Build conversation history for server (convert client messages to API format)
-    const conversationHistory = updatedChatMessages.map(msg => ({
-      role: msg.role,
-      text: msg.text,
-      files: msg.role === 'user' ? (msg.files || []) : undefined
-    })).filter(msg => msg.role === 'user' || msg.role === 'assistant');
+    // Build conversation history for server WITHOUT file data (only text and metadata)
+    // This prevents sending all previous images with every new message
+    const conversationHistory = updatedChatMessages.map(msg => {
+      const historyMsg = {
+        role: msg.role,
+        text: msg.text
+      };
 
-    // Send to server with full conversation history
+      // Only include file metadata (not actual file data) for history
+      if (msg.role === 'user' && msg.files && msg.files.length > 0) {
+        historyMsg.fileCount = msg.files.length;
+        historyMsg.fileNames = msg.files.map(f => f.name).join(', ');
+      }
+
+      return historyMsg;
+    }).filter(msg => msg.role === 'user' || msg.role === 'assistant');
+
+    // Send to server with full conversation history (text only) + current message files
     wsRef.current.send(JSON.stringify({
       type: 'chat_message',
       text: messageData.text,
-      files: filesData,
+      files: filesData, // Only current message files with base64 data
       model: selectedModel,
       tokenLimit: tokenLimit,
-      conversationHistory: conversationHistory, // Send full history for context
+      conversationHistory: conversationHistory, // Text-only history without file data
       timestamp: Date.now()
     }));
   };

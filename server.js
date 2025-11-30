@@ -413,8 +413,30 @@ app.prepare().then(() => {
     handle(req, res, parsedUrl);
   });
 
-  const wssGemini = new WebSocketServer({ noServer: true });
-  const wssOpenAI = new WebSocketServer({ noServer: true });
+  // Configure WebSocket servers with larger payload limit for images
+  // Default is 100MB, setting to 50MB for multiple high-res images
+  const wsOptions = {
+    noServer: true,
+    maxPayload: 50 * 1024 * 1024, // 50MB limit for multiple 4K images
+    perMessageDeflate: {
+      zlibDeflateOptions: {
+        chunkSize: 1024,
+        memLevel: 7,
+        level: 3
+      },
+      zlibInflateOptions: {
+        chunkSize: 10 * 1024
+      },
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: true,
+      serverMaxWindowBits: 10,
+      concurrencyLimit: 10,
+      threshold: 1024
+    }
+  };
+
+  const wssGemini = new WebSocketServer(wsOptions);
+  const wssOpenAI = new WebSocketServer(wsOptions);
 
   server.on('upgrade', (request, socket, head) => {
     const { pathname } = parse(request.url);
@@ -823,41 +845,17 @@ app.prepare().then(() => {
             let geminiHistory = [];
 
             if (data.conversationHistory && data.conversationHistory.length > 0) {
-              // Client sent full conversation history - convert to Gemini format
+              // Client sent full conversation history (text-only, without file data)
               console.log(`[Gemini Chat] Using client-sent history (${data.conversationHistory.length} messages)`);
 
-              geminiHistory = data.conversationHistory
-                .filter(msg => msg.role !== 'user' || msg !== data.conversationHistory[data.conversationHistory.length - 1]) // Exclude last message (will be sent separately)
-                .map(msg => {
-                  const parts = [];
-
-                  if (msg.text) {
-                    parts.push({ text: msg.text });
-                  }
-
-                  // Add file attachments for user messages
-                  if (msg.role === 'user' && msg.files && msg.files.length > 0) {
-                    for (const file of msg.files) {
-                      if (file.type && file.type.startsWith('image/')) {
-                        // Extract base64 data from preview URL if available
-                        const matches = (file.preview || '').match(/data:(.*?);base64,(.*)/);
-                        if (matches) {
-                          parts.push({
-                            inlineData: {
-                              mimeType: matches[1],
-                              data: matches[2]
-                            }
-                          });
-                        }
-                      }
-                    }
-                  }
-
-                  return {
-                    role: msg.role === 'assistant' ? 'model' : 'user',
-                    parts: parts.length > 0 ? parts : [{ text: msg.text || '' }]
-                  };
-                });
+              // Build history excluding the last message (current message)
+              // History only includes text to reduce payload size
+              geminiHistory = data.conversationHistory.slice(0, -1).map(msg => {
+                return {
+                  role: msg.role === 'assistant' ? 'model' : 'user',
+                  parts: [{ text: msg.text || '' }]
+                };
+              });
             }
 
             // Build current user message
@@ -1477,39 +1475,52 @@ app.prepare().then(() => {
             let messages = [];
 
             if (data.conversationHistory && data.conversationHistory.length > 0) {
-              // Client sent full conversation history - use it to build messages
+              // Client sent full conversation history (text-only, without file data)
               console.log(`[Chat] Using client-sent history (${data.conversationHistory.length} messages)`);
 
-              messages = data.conversationHistory.map(msg => {
-                const messageContent = [];
-
-                if (msg.text) {
-                  messageContent.push({
-                    type: 'text',
-                    text: msg.text
-                  });
-                }
-
-                // Add file attachments for user messages
-                if (msg.role === 'user' && msg.files && msg.files.length > 0) {
-                  for (const file of msg.files) {
-                    if (file.type && file.type.startsWith('image/')) {
-                      messageContent.push({
-                        type: 'image_url',
-                        image_url: {
-                          url: file.preview || `data:${file.type};base64,${file.data || ''}`
-                        }
-                      });
-                    }
-                  }
-                }
-
+              // Build messages from history (text only - files not included to reduce payload size)
+              messages = data.conversationHistory.slice(0, -1).map(msg => {
+                // For history messages, only include text
+                // File metadata (fileCount, fileNames) is for reference only
                 return {
                   role: msg.role,
-                  content: messageContent.length === 1 && messageContent[0].type === 'text'
-                    ? messageContent[0].text
-                    : messageContent
+                  content: msg.text || ''
                 };
+              });
+
+              // Add current message (last one in history) with actual file attachments
+              const currentMessage = data.conversationHistory[data.conversationHistory.length - 1];
+              const currentContent = [];
+
+              if (currentMessage.text) {
+                currentContent.push({
+                  type: 'text',
+                  text: currentMessage.text
+                });
+              }
+
+              // Add current message file attachments from data.files (has base64 data)
+              if (data.files && data.files.length > 0) {
+                for (const file of data.files) {
+                  if (file.type.startsWith('image/')) {
+                    currentContent.push({
+                      type: 'image_url',
+                      image_url: {
+                        url: `data:${file.type};base64,${file.data}`
+                      }
+                    });
+                  } else {
+                    currentContent.push({
+                      type: 'text',
+                      text: `[File: ${file.name}]`
+                    });
+                  }
+                }
+              }
+
+              messages.push({
+                role: 'user',
+                content: currentContent.length === 1 ? currentContent[0].text : currentContent
               });
             } else {
               // Fallback: build from current message only (legacy support)
