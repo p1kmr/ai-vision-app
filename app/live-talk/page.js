@@ -497,6 +497,14 @@ function LiveTalkPageContent() {
     // For o3 model, use simple API call (no WebSocket)
     if (selectedModel === 'o3') {
       try {
+        // Validate API key exists
+        const openaiApiKey = sessionStorage.getItem('openai_api_key');
+        if (!openaiApiKey) {
+          setError('OpenAI API key not configured. Please set it in Settings.');
+          setIsAiTyping(false);
+          return;
+        }
+
         // Build messages array for OpenAI API
         const messages = updatedChatMessages.map((msg, index) => {
           const isCurrentMessage = index === updatedChatMessages.length - 1;
@@ -524,39 +532,61 @@ function LiveTalkPageContent() {
           };
         });
 
-        // Call API route
-        const openaiApiKey = sessionStorage.getItem('openai_api_key');
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages,
-            model: selectedModel,
-            apiKey: openaiApiKey,
-            tokenLimit: tokenLimit
-          })
-        });
+        // Call API route with timeout (60 seconds for o3 reasoning)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-        const data = await response.json();
+        try {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages,
+              model: selectedModel,
+              apiKey: openaiApiKey,
+              tokenLimit: tokenLimit
+            }),
+            signal: controller.signal
+          });
 
-        if (data.error) {
-          setError(data.error);
+          clearTimeout(timeoutId);
+
+          // Check HTTP status
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+
+          if (data.error) {
+            setError(data.error);
+            setIsAiTyping(false);
+            return;
+          }
+
+          // Add AI response to chat
+          const aiMessage = {
+            role: 'assistant',
+            text: data.text,
+            timestamp: Date.now()
+          };
+          setChatMessages(prev => [...prev, aiMessage]);
           setIsAiTyping(false);
-          return;
-        }
 
-        // Add AI response to chat
-        const aiMessage = {
-          role: 'assistant',
-          text: data.text,
-          timestamp: Date.now()
-        };
-        setChatMessages(prev => [...prev, aiMessage]);
-        setIsAiTyping(false);
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+
+          if (fetchError.name === 'AbortError') {
+            setError('Request timed out. o3 is taking too long to respond.');
+          } else {
+            throw fetchError;
+          }
+        }
 
       } catch (error) {
         console.error('API call error:', error);
-        setError('Failed to send message');
+        setError(error.message || 'Failed to send message');
         setIsAiTyping(false);
       }
       return;

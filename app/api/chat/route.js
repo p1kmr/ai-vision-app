@@ -70,11 +70,23 @@ export async function POST(request) {
   } catch (error) {
     console.error('[API] Chat error:', error);
 
+    // Don't expose internal error details to client (security issue)
+    // Only log detailed errors server-side
+    let userMessage = 'Failed to process chat request';
+
+    // Provide specific user-friendly messages for common errors
+    if (error.message?.includes('API key')) {
+      userMessage = 'Invalid API key';
+    } else if (error.message?.includes('rate limit')) {
+      userMessage = 'Rate limit exceeded. Please try again later';
+    } else if (error.message?.includes('timeout')) {
+      userMessage = 'Request timed out. Please try again';
+    } else if (error.message?.includes('model')) {
+      userMessage = 'Invalid model or model not available';
+    }
+
     return NextResponse.json(
-      {
-        error: error.message || 'Failed to process chat request',
-        details: error.toString()
-      },
+      { error: userMessage },
       { status: 500 }
     );
   }
