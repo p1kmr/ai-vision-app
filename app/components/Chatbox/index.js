@@ -150,7 +150,24 @@ export default function Chatbox({
                 />
 
                 {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 relative">
+                    {/* History Button - Top Right */}
+                    {showHistoryButton && (
+                        <button
+                            onClick={() => setShowHistory(!showHistory)}
+                            className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${showHistory
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-700/80 hover:bg-gray-600/80 text-gray-300'
+                                }`}
+                            title="Chat History"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            History
+                        </button>
+                    )}
+
                     {messages.length === 0 ? (
                         <div className="text-center text-gray-400 mt-8">
                             <p className="text-lg mb-2">Start a conversation</p>
