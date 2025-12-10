@@ -875,17 +875,49 @@ function LiveTalkPageContent() {
       </div>
 
       {/* Main Content */}
-      <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-3 sm:p-4 md:p-6 lg:p-8">
+      <div className="relative z-10 flex flex-col items-center min-h-screen p-0 sm:p-4 md:p-6 lg:p-8">
+
+        {/* Top Navigation Bar */}
+        <div className="w-full max-w-7xl flex justify-between items-center p-4 sm:p-0 mb-4 sm:mb-8">
+          <button
+            onClick={handleBackToVision}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800/60 hover:bg-gray-700 text-gray-200 rounded-lg text-sm font-medium transition-all border border-gray-700 backdrop-blur-md"
+          >
+            ← Vision Mode
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-sm font-medium transition-all backdrop-blur-md"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            Logout
+          </button>
+        </div>
 
         {/* Header */}
-        <div className="mb-4 sm:mb-6 md:mb-8 lg:mb-10 text-center px-2">
-          <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold text-white mb-1 sm:mb-2 lg:mb-3">
-            Live Audio Talk
-          </h1>
-          <p className="text-gray-400 text-sm sm:text-base md:text-lg lg:text-xl">
-            Audio-only AI conversation
-          </p>
-        </div>
+        {!hasStarted && (
+          <div className="mb-4 sm:mb-6 md:mb-8 lg:mb-10 text-center px-4 w-full max-w-2xl">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-2">
+              Live Audio Talk
+            </h1>
+            <p className="text-gray-400 text-sm sm:text-base mb-6">
+              AI conversation with voice and chat capabilities
+            </p>
+
+            <button
+              onClick={handleStart}
+              className="w-full sm:w-auto px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-base sm:text-lg shadow-lg shadow-blue-600/20 transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2 mx-auto"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+              Start Live Session
+            </button>
+          </div>
+        )}
 
         {/* Main Card */}
         <div className={`w-full max-w-4xl lg:max-w-6xl xl:max-w-7xl bg-gray-800/50 backdrop-blur-xl rounded-none sm:rounded-3xl p-0 sm:p-4 border-0 sm:border border-gray-700/50 shadow-none sm:shadow-2xl ${hasStarted ? 'h-[100dvh] sm:h-[calc(100vh-40px)] flex flex-col' : ''}`}>
@@ -905,17 +937,39 @@ function LiveTalkPageContent() {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 {isConnected && (
-                  <span className="text-gray-400 text-xs sm:text-sm">
-                    Session: {formatTime(sessionTime)}
+                  <span className="text-gray-400 text-xs sm:text-sm hidden sm:inline">
+                    {formatTime(sessionTime)}
                   </span>
                 )}
+
+                {/* Stop Audio button - only show in voice mode */}
+                {!isChatMode && selectedModel !== 'o3' && (
+                  <button
+                    onClick={handleStopStreaming}
+                    className="px-3 py-1.5 bg-orange-600/80 hover:bg-orange-600 text-white rounded-lg text-xs font-medium transition-all"
+                  >
+                    Stop Audio
+                  </button>
+                )}
+
+                {/* End Session button */}
+                <button
+                  onClick={handleEndSession}
+                  className="px-3 py-1.5 bg-red-600/80 hover:bg-red-600 text-white rounded-lg text-xs font-medium transition-all flex items-center gap-1"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span className="hidden sm:inline">End</span>
+                </button>
+
                 {/* Chat/Voice Toggle Button - Hidden for o3 (chat-only) */}
                 {selectedModel !== 'o3' && (
                   <button
                     onClick={() => setIsChatMode(!isChatMode)}
-                    className={`p-2 rounded-full transition-all ${isChatMode
+                    className={`p-1.5 sm:p-2 rounded-lg transition-all ${isChatMode
                       ? 'bg-blue-600 text-white'
                       : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600/60'
                       }`}
@@ -1167,56 +1221,7 @@ function LiveTalkPageContent() {
             </div>
           )}
 
-          {/* Controls */}
-          <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-2 sm:gap-3 lg:gap-4">
-            {!hasStarted ? (
-              <>
-                <button
-                  onClick={handleStart}
-                  className="w-full sm:w-auto px-6 sm:px-8 lg:px-10 py-3 sm:py-3.5 lg:py-4 bg-white hover:bg-gray-100 active:bg-gray-200 text-gray-900 rounded-full font-semibold text-base sm:text-lg lg:text-xl transition-all transform hover:scale-105 active:scale-95 shadow-lg"
-                >
-                  Start Live Talk
-                </button>
-                <button
-                  onClick={handleBackToVision}
-                  className="w-full sm:w-auto px-5 sm:px-6 lg:px-8 py-3 sm:py-3.5 lg:py-4 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base lg:text-lg transition-all border border-gray-600 shadow-lg"
-                >
-                  Switch to Vision
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="w-full sm:w-auto px-5 sm:px-6 lg:px-8 py-3 sm:py-3.5 lg:py-4 bg-gray-700/60 hover:bg-gray-700 active:bg-gray-600 text-gray-100 rounded-full font-medium text-sm sm:text-base lg:text-lg transition-all border border-gray-600 shadow-lg"
-                >
-                  Logout
-                </button>
-              </>
-            ) : (
-              <>
-                {/* Stop Audio button - only show in voice mode */}
-                {!isChatMode && selectedModel !== 'o3' && (
-                  <button
-                    onClick={handleStopStreaming}
-                    className="w-full sm:w-auto px-6 sm:px-8 lg:px-10 py-3 sm:py-3.5 lg:py-4 bg-orange-600 hover:bg-orange-500 active:bg-orange-700 text-white rounded-full font-semibold text-sm sm:text-base lg:text-lg transition-all transform hover:scale-105 active:scale-95 shadow-lg"
-                  >
-                    Stop Audio
-                  </button>
-                )}
-                {/* End Session button */}
-                <button
-                  onClick={handleEndSession}
-                  className="w-full sm:w-auto px-6 sm:px-8 lg:px-10 py-3 sm:py-3.5 lg:py-4 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-full font-semibold text-sm sm:text-base lg:text-lg transition-all transform hover:scale-105 active:scale-95 shadow-lg"
-                >
-                  End Session
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="w-full sm:w-auto px-5 sm:px-6 lg:px-8 py-3 sm:py-3.5 lg:py-4 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-100 rounded-full font-medium text-sm sm:text-base lg:text-lg transition-all transform hover:scale-105 active:scale-95 shadow-lg"
-                >
-                  Logout
-                </button>
-              </>
-            )}
-          </div>
+
         </div>
 
         {/* Auto-reconnect Notice */}
