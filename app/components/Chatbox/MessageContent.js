@@ -147,8 +147,11 @@ export default function MessageContent({ message, getFileIcon }) {
             <div className="flex items-center gap-2 text-xs opacity-70 mt-2">
                 <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
                 {message.usage && (
-                    <span className="text-blue-300" title={`Prompt: ${message.usage.prompt_tokens?.toLocaleString()} | Completion: ${message.usage.completion_tokens?.toLocaleString()}`}>
-                        • {message.usage.total_tokens?.toLocaleString()} tokens
+                    <span
+                        className="text-blue-300 cursor-help"
+                        title={`Input: ${message.usage.prompt_tokens?.toLocaleString()} ($${((message.usage.prompt_tokens || 0) * 0.000002).toFixed(4)}) | Output: ${message.usage.completion_tokens?.toLocaleString()} ($${((message.usage.completion_tokens || 0) * 0.000008).toFixed(4)}) | Total: ${message.usage.total_tokens?.toLocaleString()} tokens`}
+                    >
+                        • {message.usage.completion_tokens?.toLocaleString()} tokens (~${((message.usage.prompt_tokens || 0) * 0.000002 + (message.usage.completion_tokens || 0) * 0.000008).toFixed(4)})
                     </span>
                 )}
             </div>

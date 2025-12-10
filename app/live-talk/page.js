@@ -940,10 +940,11 @@ function LiveTalkPageContent() {
                 )}
                 {/* Token Usage Display for O3 */}
                 {selectedModel === 'o3' && tokenUsage && (
-                  <div className="flex items-center gap-2 text-xs text-gray-400">
-                    <span title={`Prompt: ${tokenUsage.last_request?.prompt_tokens?.toLocaleString() || 0} | Completion: ${tokenUsage.last_request?.completion_tokens?.toLocaleString() || 0}`}>
-                      🎯 {tokenUsage.total_tokens?.toLocaleString() || 0} tokens
-                    </span>
+                  <div
+                    className="flex items-center gap-2 text-xs text-gray-400 cursor-help"
+                    title={`Session Total - Input: ${tokenUsage.prompt_tokens?.toLocaleString() || 0} ($${((tokenUsage.prompt_tokens || 0) * 0.000002).toFixed(4)}) | Output: ${tokenUsage.completion_tokens?.toLocaleString() || 0} ($${((tokenUsage.completion_tokens || 0) * 0.000008).toFixed(4)})`}
+                  >
+                    <span>🎯 ~${((tokenUsage.prompt_tokens || 0) * 0.000002 + (tokenUsage.completion_tokens || 0) * 0.000008).toFixed(4)}</span>
                   </div>
                 )}
               </div>
