@@ -1,5 +1,6 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
 
 // Firebase configuration from environment variables
 // Users need to add these to .env.local
@@ -16,6 +17,7 @@ const firebaseConfig = {
 // Initialize Firebase only if it hasn't been initialized and only on client side
 let app;
 let auth;
+let db;
 
 if (typeof window !== 'undefined') {
   if (!getApps().length) {
@@ -24,6 +26,7 @@ if (typeof window !== 'undefined') {
     app = getApps()[0];
   }
   auth = getAuth(app);
+  db = getFirestore(app);
 }
 
 // Initialize Google Auth Provider
@@ -36,5 +39,5 @@ if (googleProvider) {
   });
 }
 
-export { auth, googleProvider };
+export { auth, googleProvider, db };
 export default app;

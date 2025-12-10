@@ -47,7 +47,17 @@ export async function POST(request) {
       completionParams.reasoning_effort = reasoningEffort;
       completionParams.max_completion_tokens = limit;
 
-      console.log(`[API] o3 request - Token limit: ${limit}, Reasoning: ${reasoningEffort}`);
+      // Count images in the request for logging
+      let imageCount = 0;
+      messages.forEach(msg => {
+        if (Array.isArray(msg.content)) {
+          msg.content.forEach(item => {
+            if (item.type === 'image_url') imageCount++;
+          });
+        }
+      });
+
+      console.log(`[API] o3 request - Token limit: ${limit}, Reasoning: ${reasoningEffort}, Images: ${imageCount}`);
     } else {
       // For GPT-4o and other models
       completionParams.max_tokens = 4096;
@@ -73,6 +83,8 @@ export async function POST(request) {
 
   } catch (error) {
     console.error('[API] Chat error:', error);
+    console.error('[API] Error message:', error.message);
+    console.error('[API] Error status:', error.status);
 
     // Don't expose internal error details to client (security issue)
     // Only log detailed errors server-side
@@ -87,11 +99,18 @@ export async function POST(request) {
       userMessage = 'Request timed out. Please try again';
     } else if (error.message?.includes('model')) {
       userMessage = 'Invalid model or model not available';
+    } else if (error.message?.includes('content') || error.message?.includes('image')) {
+      userMessage = 'Image processing error. Try fewer or smaller images.';
+    } else if (error.message?.includes('maximum context length') || error.message?.includes('token')) {
+      userMessage = 'Request too large. Try with fewer images or a shorter message.';
+    } else if (error.status === 400) {
+      userMessage = error.message || 'Bad request - check your input';
     }
 
     return NextResponse.json(
-      { error: userMessage },
-      { status: 500 }
+      { error: userMessage, details: error.message },
+      { status: error.status || 500 }
     );
   }
 }
+

@@ -8,10 +8,18 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import Chatbox from '../components/Chatbox';
+import {
+  saveO3ChatSession,
+  updateO3ChatSession,
+  loadO3ChatSessions,
+  loadO3ChatSession,
+  deleteO3ChatSession,
+  generateChatTitle
+} from '../lib/o3-chat-history';
 
 function LiveTalkPageContent() {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [aiResponse, setAiResponse] = useState('Select a model and click Start to begin');
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState('');
@@ -23,8 +31,15 @@ function LiveTalkPageContent() {
   const [isUserSpeaking, setIsUserSpeaking] = useState(false); // Track if user is speaking (OpenAI VAD)
   const [isChatMode, setIsChatMode] = useState(false); // Toggle between voice and chat
   const [chatMessages, setChatMessages] = useState([]); // Store chat messages
-  const [tokenLimit, setTokenLimit] = useState(100000); // Token limit for o3 model (numeric)
+  const [tokenLimit, setTokenLimit] = useState(100000); // Token limit for o3 model (numeric) - max 1M
   const [isAiTyping, setIsAiTyping] = useState(false); // Track if AI is generating response
+
+  // O3 Chat History State
+  const [o3Sessions, setO3Sessions] = useState([]); // List of saved O3 chat sessions
+  const [currentSessionId, setCurrentSessionId] = useState(null); // Current active session ID
+  const [showSessionList, setShowSessionList] = useState(false); // Toggle session list panel
+  const [lastFailedMessage, setLastFailedMessage] = useState(null); // Store last failed message for retry
+  const [tokenUsage, setTokenUsage] = useState(null); // Track token usage for O3
 
   // Available AI providers
   const availableProviders = [
@@ -124,6 +139,159 @@ function LiveTalkPageContent() {
     };
   }, [cleanup]);
 
+  // Load O3 chat sessions when user changes or model is O3
+  useEffect(() => {
+    if (user && selectedModel === 'o3') {
+      loadO3ChatSessions(user.uid).then(sessions => {
+        setO3Sessions(sessions);
+      });
+    }
+  }, [user, selectedModel]);
+
+  // Helper function to sanitize messages for Firestore storage
+  // Removes large base64 image data and blob URLs to save space
+  const sanitizeMessagesForStorage = (messages) => {
+    return messages.map(msg => {
+      const sanitizedMsg = {
+        role: msg.role,
+        text: msg.text || '',
+        timestamp: msg.timestamp
+      };
+
+      // Keep token usage for AI messages
+      if (msg.usage) {
+        sanitizedMsg.usage = msg.usage;
+      }
+
+      // Keep file metadata but remove base64/blob data
+      if (msg.files && msg.files.length > 0) {
+        sanitizedMsg.files = msg.files.map(file => ({
+          name: file.name,
+          type: file.type,
+          // Don't save preview (blob URL) or base64Data - they're too large
+          hadImage: file.preview ? true : false
+        }));
+        sanitizedMsg.imageCount = msg.files.filter(f => f.type?.startsWith('image/')).length;
+      }
+
+      return sanitizedMsg;
+    });
+  };
+
+  // Save O3 chat session whenever messages change (for O3 only)
+  useEffect(() => {
+    if (selectedModel === 'o3' && user && chatMessages.length > 0 && hasStarted) {
+      // Debug: Log user info
+      console.log('[Save Debug] User:', user?.uid, user?.email);
+
+      // Debounce saving to avoid too many writes
+      const saveTimeout = setTimeout(async () => {
+        try {
+          // Sanitize messages before saving (remove large image data)
+          const sanitizedMessages = sanitizeMessagesForStorage(chatMessages);
+
+          console.log('[Save Debug] Saving with userId:', user.uid);
+
+          if (currentSessionId) {
+            // Update existing session
+            await updateO3ChatSession(currentSessionId, sanitizedMessages);
+          } else {
+            // Create new session with first user message as title
+            const firstUserMessage = chatMessages.find(m => m.role === 'user');
+            const title = generateChatTitle(firstUserMessage?.text);
+            console.log('[Save Debug] Creating new session:', { userId: user.uid, title });
+            const sessionId = await saveO3ChatSession(user.uid, title, sanitizedMessages);
+            setCurrentSessionId(sessionId);
+          }
+        } catch (error) {
+          console.error('Failed to save O3 chat session:', error);
+        }
+      }, 1000); // Wait 1 second before saving
+
+      return () => clearTimeout(saveTimeout);
+    }
+  }, [chatMessages, selectedModel, user, currentSessionId, hasStarted]);
+
+  // Load a specific O3 chat session
+  const handleLoadO3Session = async (sessionId) => {
+    try {
+      const session = await loadO3ChatSession(sessionId);
+      if (session) {
+        setChatMessages(session.messages || []);
+        setCurrentSessionId(sessionId);
+        setShowSessionList(false);
+        setHasStarted(true);
+        setIsChatMode(true);
+        setAiResponse('Loaded previous conversation');
+      }
+    } catch (error) {
+      console.error('Failed to load O3 session:', error);
+      setError('Failed to load chat session');
+    }
+  };
+
+  // Start a new O3 chat session
+  const handleNewO3Session = () => {
+    setChatMessages([]);
+    setCurrentSessionId(null);
+    setShowSessionList(false);
+  };
+
+  // Delete an O3 chat session
+  const handleDeleteO3Session = async (sessionId, e) => {
+    e.stopPropagation(); // Prevent triggering load when clicking delete
+    try {
+      await deleteO3ChatSession(sessionId);
+      setO3Sessions(prev => prev.filter(s => s.id !== sessionId));
+      if (currentSessionId === sessionId) {
+        setChatMessages([]);
+        setCurrentSessionId(null);
+      }
+    } catch (error) {
+      console.error('Failed to delete O3 session:', error);
+      setError('Failed to delete chat session');
+    }
+  };
+
+  // Edit a message and resubmit from that point
+  const handleEditMessage = async (messageIndex, newText, files) => {
+    // Remove all messages from this index onwards (this message and all following)
+    const messagesBeforeEdit = chatMessages.slice(0, messageIndex);
+    setChatMessages(messagesBeforeEdit);
+
+    // Send the edited message
+    const editedMessageData = {
+      text: newText,
+      files: files || []
+    };
+
+    // Small delay to ensure state is updated
+    setTimeout(() => {
+      handleSendChatMessage(editedMessageData);
+    }, 100);
+  };
+
+  // Retry from a specific message (resend that message)
+  const handleRetryMessage = async (messageIndex) => {
+    const messageToRetry = chatMessages[messageIndex];
+    if (!messageToRetry || messageToRetry.role !== 'user') return;
+
+    // Remove all messages from this index onwards
+    const messagesBeforeRetry = chatMessages.slice(0, messageIndex);
+    setChatMessages(messagesBeforeRetry);
+
+    // Resend the message
+    const retryMessageData = {
+      text: messageToRetry.text || '',
+      files: messageToRetry.files || []
+    };
+
+    // Small delay to ensure state is updated
+    setTimeout(() => {
+      handleSendChatMessage(retryMessageData);
+    }, 100);
+  };
+
   const handleStart = async () => {
     setHasStarted(true);
 
@@ -132,6 +300,7 @@ function LiveTalkPageContent() {
       setIsChatMode(true); // Automatically switch to chat mode for o3
       setIsConnected(true); // Ready immediately (no connection needed)
       setAiResponse('Ready to chat with o3');
+      setTokenUsage(null); // Reset token usage for new session
       return;
     }
 
@@ -462,9 +631,69 @@ function LiveTalkPageContent() {
   };
 
   const handleSendChatMessage = async (messageData) => {
-    // Convert files to base64 first
+    // Helper function to compress image for O3 (max 1536px, JPEG 80% quality)
+    // Optimized for 7-8 high-res phone photos (e.g., 50MP cameras)
+    const compressImageForO3 = (file) => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          // Calculate new dimensions (max 1536px on longest side - optimal for O3)
+          const maxSize = 1536;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxSize || height > maxSize) {
+            if (width > height) {
+              height = Math.round((height * maxSize) / width);
+              width = maxSize;
+            } else {
+              width = Math.round((width * maxSize) / height);
+              height = maxSize;
+            }
+          }
+
+          // Create canvas and compress
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convert to JPEG at 80% quality for smaller size (optimal for multiple images)
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.80);
+          const base64 = dataUrl.split(',')[1];
+
+          resolve({
+            name: file.name,
+            type: 'image/jpeg',
+            data: base64
+          });
+        };
+        img.onerror = () => {
+          // Fallback to original if image loading fails
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            resolve({
+              name: file.name,
+              type: file.type,
+              data: reader.result.split(',')[1]
+            });
+          };
+          reader.readAsDataURL(file.file);
+        };
+        img.src = file.preview || URL.createObjectURL(file.file);
+      });
+    };
+
+    // Convert files to base64 (with compression for O3)
     const filesData = await Promise.all(
       messageData.files.map(async (fileObj) => {
+        // For O3 model, compress images
+        if (selectedModel === 'o3' && fileObj.type.startsWith('image/')) {
+          return compressImageForO3(fileObj);
+        }
+
+        // For other models/files, use original
         return new Promise((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => {
@@ -520,7 +749,10 @@ function LiveTalkPageContent() {
               if (file.type.startsWith('image/')) {
                 messageContent.push({
                   type: 'image_url',
-                  image_url: { url: `data:${file.type};base64,${file.data}` }
+                  image_url: {
+                    url: `data:${file.type};base64,${file.data}`,
+                    detail: 'high' // Use high detail for better understanding
+                  }
                 });
               }
             }
@@ -528,14 +760,12 @@ function LiveTalkPageContent() {
 
           return {
             role: msg.role,
-            content: messageContent.length === 1 ? messageContent[0].text : messageContent
+            content: messageContent.length === 1 && !isCurrentMessage ? messageContent[0].text : messageContent
           };
         });
 
-        // Call API route with extended timeout for o3 reasoning
-        // o3 can take 2-5 minutes depending on complexity and reasoning_effort
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes
+        // Call API route for o3 reasoning - no client-side timeout, let it take as long as needed
+        // o3 can take several minutes depending on complexity and reasoning_effort
 
         try {
           const response = await fetch('/api/chat', {
@@ -546,11 +776,10 @@ function LiveTalkPageContent() {
               model: selectedModel,
               apiKey: openaiApiKey,
               tokenLimit: tokenLimit
-            }),
-            signal: controller.signal
+            })
           });
 
-          clearTimeout(timeoutId);
+
 
           // Check HTTP status
           if (!response.ok) {
@@ -566,28 +795,35 @@ function LiveTalkPageContent() {
             return;
           }
 
+          // Track token usage
+          if (data.usage) {
+            setTokenUsage(prev => ({
+              prompt_tokens: (prev?.prompt_tokens || 0) + (data.usage.prompt_tokens || 0),
+              completion_tokens: (prev?.completion_tokens || 0) + (data.usage.completion_tokens || 0),
+              total_tokens: (prev?.total_tokens || 0) + (data.usage.total_tokens || 0),
+              last_request: data.usage
+            }));
+          }
+
           // Add AI response to chat
           const aiMessage = {
             role: 'assistant',
             text: data.text,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            usage: data.usage // Store usage with message
           };
           setChatMessages(prev => [...prev, aiMessage]);
           setIsAiTyping(false);
+          setLastFailedMessage(null); // Clear on success
 
         } catch (fetchError) {
-          clearTimeout(timeoutId);
-
-          if (fetchError.name === 'AbortError') {
-            setError('Request timed out. o3 is taking too long to respond.');
-          } else {
-            throw fetchError;
-          }
+          throw fetchError;
         }
 
       } catch (error) {
         console.error('API call error:', error);
         setError(error.message || 'Failed to send message');
+        setLastFailedMessage(messageData); // Save for retry
         setIsAiTyping(false);
       }
       return;
@@ -679,11 +915,10 @@ function LiveTalkPageContent() {
                 {selectedModel !== 'o3' && (
                   <button
                     onClick={() => setIsChatMode(!isChatMode)}
-                    className={`p-2 rounded-full transition-all ${
-                      isChatMode
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600/60'
-                    }`}
+                    className={`p-2 rounded-full transition-all ${isChatMode
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600/60'
+                      }`}
                     title={isChatMode ? 'Switch to Voice Mode' : 'Switch to Chat Mode'}
                   >
                     {isChatMode ? (
@@ -702,6 +937,14 @@ function LiveTalkPageContent() {
                 {/* o3 Chat-Only Indicator */}
                 {selectedModel === 'o3' && (
                   <span className="text-xs text-blue-400 font-medium">Chat Mode</span>
+                )}
+                {/* Token Usage Display for O3 */}
+                {selectedModel === 'o3' && tokenUsage && (
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <span title={`Prompt: ${tokenUsage.last_request?.prompt_tokens?.toLocaleString() || 0} | Completion: ${tokenUsage.last_request?.completion_tokens?.toLocaleString() || 0}`}>
+                      🎯 {tokenUsage.total_tokens?.toLocaleString() || 0} tokens
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
@@ -726,11 +969,10 @@ function LiveTalkPageContent() {
                         setSelectedModel('gemini-2.0-flash-exp');
                       }
                     }}
-                    className={`flex-1 p-3 sm:p-4 rounded-lg sm:rounded-xl border transition-all ${
-                      selectedProvider === provider.id
-                        ? 'bg-gray-700/60 border-gray-600 shadow-lg'
-                        : 'bg-gray-800/30 border-gray-700/50 hover:bg-gray-700/40 active:bg-gray-700/50'
-                    }`}
+                    className={`flex-1 p-3 sm:p-4 rounded-lg sm:rounded-xl border transition-all ${selectedProvider === provider.id
+                      ? 'bg-gray-700/60 border-gray-600 shadow-lg'
+                      : 'bg-gray-800/30 border-gray-700/50 hover:bg-gray-700/40 active:bg-gray-700/50'
+                      }`}
                   >
                     <div className="text-white text-sm sm:text-base font-medium">{provider.name}</div>
                     <div className="text-gray-400 text-xs sm:text-sm mt-0.5">{provider.description}</div>
@@ -755,11 +997,10 @@ function LiveTalkPageContent() {
                   <button
                     key={model.id}
                     onClick={() => setSelectedModel(model.id)}
-                    className={`w-full text-left p-3 sm:p-4 rounded-lg sm:rounded-xl border transition-all ${
-                      selectedModel === model.id
-                        ? 'bg-gray-700/60 border-gray-600 shadow-lg'
-                        : 'bg-gray-800/30 border-gray-700/50 hover:bg-gray-700/40 active:bg-gray-700/50'
-                    }`}
+                    className={`w-full text-left p-3 sm:p-4 rounded-lg sm:rounded-xl border transition-all ${selectedModel === model.id
+                      ? 'bg-gray-700/60 border-gray-600 shadow-lg'
+                      : 'bg-gray-800/30 border-gray-700/50 hover:bg-gray-700/40 active:bg-gray-700/50'
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -791,7 +1032,7 @@ function LiveTalkPageContent() {
                 <h3 className="text-white text-base sm:text-lg md:text-xl font-semibold">Token Limit</h3>
               </div>
               <p className="text-gray-400 text-xs sm:text-sm mb-3 sm:mb-4">
-                Enter the maximum reasoning tokens for o3 model (recommended: 20,000 - 100,000)
+                Enter the maximum reasoning tokens for o3 model (recommended: 20,000 - 100,000, max: 1,000,000)
               </p>
 
               <div className="space-y-3">
@@ -800,7 +1041,7 @@ function LiveTalkPageContent() {
                   value={tokenLimit}
                   onChange={(e) => setTokenLimit(parseInt(e.target.value) || 0)}
                   min="1000"
-                  max="200000"
+                  max="1000000"
                   step="1000"
                   className="w-full px-4 py-3 bg-gray-700/40 border border-gray-600/50 rounded-xl text-white text-base sm:text-lg font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Enter token limit..."
@@ -832,7 +1073,7 @@ function LiveTalkPageContent() {
                 {tokenLimit < 1000 && (
                   <p className="text-red-400 text-xs">Token limit should be at least 1,000</p>
                 )}
-                {tokenLimit > 200000 && (
+                {tokenLimit > 500000 && (
                   <p className="text-yellow-400 text-xs">⚠️ Very high token limit - may be expensive</p>
                 )}
               </div>
@@ -845,8 +1086,17 @@ function LiveTalkPageContent() {
               <Chatbox
                 messages={chatMessages}
                 onSendMessage={handleSendChatMessage}
+                onEditMessage={handleEditMessage}
+                onRetryMessage={handleRetryMessage}
                 isConnected={isConnected}
                 isLoading={isAiTyping}
+                // Chat history props for O3
+                chatSessions={selectedModel === 'o3' ? o3Sessions : []}
+                currentSessionId={currentSessionId}
+                onLoadSession={handleLoadO3Session}
+                onNewSession={handleNewO3Session}
+                onDeleteSession={handleDeleteO3Session}
+                showHistoryButton={selectedModel === 'o3' && user}
               />
             </div>
           ) : (
@@ -877,10 +1127,42 @@ function LiveTalkPageContent() {
             </>
           )}
 
-          {/* Error Display */}
+          {/* Error Display with Retry */}
           {error && (
-            <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-gray-700/40 border border-gray-600/50 rounded-lg sm:rounded-xl">
-              <p className="text-gray-300 text-xs sm:text-sm">{error}</p>
+            <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-900/30 border border-red-600/50 rounded-lg sm:rounded-xl">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-red-300 text-xs sm:text-sm flex-1">{error}</p>
+                {lastFailedMessage && selectedModel === 'o3' && (
+                  <button
+                    onClick={async () => {
+                      setError('');
+                      // Remove the failed user message from chat
+                      setChatMessages(prev => prev.slice(0, -1));
+                      // Retry sending the message
+                      await handleSendChatMessage(lastFailedMessage);
+                      setLastFailedMessage(null);
+                    }}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs sm:text-sm font-medium transition-all flex items-center gap-2 flex-shrink-0"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Retry
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setError('');
+                    setLastFailedMessage(null);
+                  }}
+                  className="text-red-400 hover:text-red-300 p-1"
+                  title="Dismiss"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
             </div>
           )}
 
