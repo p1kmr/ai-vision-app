@@ -888,11 +888,11 @@ function LiveTalkPageContent() {
         </div>
 
         {/* Main Card */}
-        <div className={`w-full max-w-4xl lg:max-w-6xl xl:max-w-7xl bg-gray-800/50 backdrop-blur-xl rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 lg:p-10 border border-gray-700/50 shadow-2xl ${hasStarted ? 'h-[calc(100vh-100px)] flex flex-col' : ''}`}>
+        <div className={`w-full max-w-4xl lg:max-w-6xl xl:max-w-7xl bg-gray-800/50 backdrop-blur-xl rounded-none sm:rounded-3xl p-0 sm:p-4 border-0 sm:border border-gray-700/50 shadow-none sm:shadow-2xl ${hasStarted ? 'h-[100dvh] sm:h-[calc(100vh-40px)] flex flex-col' : ''}`}>
 
           {/* Connection Status */}
           {hasStarted && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 pb-3 sm:pb-4 border-b border-gray-700 gap-2 sm:gap-0 flex-shrink-0">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 sm:px-0 mb-4 sm:mb-6 pb-3 sm:pb-4 border-b border-gray-700 gap-2 sm:gap-0 flex-shrink-0 pt-2 sm:pt-0">
               <div className="flex items-center gap-2 sm:gap-3">
                 <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full ${isConnected ? 'bg-gray-300' : 'bg-gray-500'} animate-pulse`} />
                 <span className="text-gray-200 text-xs sm:text-sm font-medium">
@@ -1083,7 +1083,7 @@ function LiveTalkPageContent() {
 
           {/* Chat Mode - Show Chatbox */}
           {hasStarted && isChatMode ? (
-            <div className="mb-4 sm:mb-6 flex-1 min-h-0">
+            <div className="mb-0 sm:mb-6 flex-1 min-h-0">
               <Chatbox
                 messages={chatMessages}
                 onSendMessage={handleSendChatMessage}

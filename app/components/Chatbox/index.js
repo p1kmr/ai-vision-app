@@ -125,7 +125,7 @@ export default function Chatbox({
     };
 
     return (
-        <div className="flex h-full bg-gray-800/50 backdrop-blur-xl rounded-2xl border border-gray-700/50 overflow-hidden relative">
+        <div className="flex h-full bg-gray-800/50 backdrop-blur-xl rounded-none sm:rounded-2xl border-0 sm:border border-gray-700/50 overflow-hidden relative">
             {/* Chat History Sidebar */}
             {showHistory && showHistoryButton && (
                 <ChatHistorySidebar
@@ -150,14 +150,14 @@ export default function Chatbox({
                 />
 
                 {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4 relative">
+                <div className="flex-1 overflow-y-auto p-2 space-y-2 relative">
                     {/* History Button - Top Right */}
                     {showHistoryButton && (
                         <button
                             onClick={() => setShowHistory(!showHistory)}
                             className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${showHistory
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-gray-700/80 hover:bg-gray-600/80 text-gray-300'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-700/80 hover:bg-gray-600/80 text-gray-300'
                                 }`}
                             title="Chat History"
                         >
@@ -196,7 +196,7 @@ export default function Chatbox({
                                 )}
 
                                 <div
-                                    className={`max-w-[80%] rounded-2xl p-4 relative ${msg.role === 'user'
+                                    className={`max-w-[90%] rounded-2xl p-3 relative ${msg.role === 'user'
                                         ? 'bg-blue-600/80 text-white'
                                         : 'bg-gray-700/60 text-gray-100'
                                         }`}

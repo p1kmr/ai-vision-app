@@ -53,7 +53,7 @@ export default function ChatInput({
     };
 
     return (
-        <div className="border-t border-gray-700/50 p-4">
+        <div className="border-t border-gray-700/50 p-2">
             {/* File previews */}
             {attachedFiles.length > 0 && (
                 <div className="mb-3 flex flex-wrap gap-2">
