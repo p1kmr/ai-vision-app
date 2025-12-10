@@ -32,20 +32,32 @@ export async function saveO3ChatSession(userId, title, messages) {
         return null;
     }
 
+    // Validate userId exists
+    if (!userId || userId === 'undefined' || userId === 'null') {
+        console.error('[O3 Chat] ERROR: Invalid userId provided:', userId);
+        throw new Error('Cannot save chat: userId is invalid');
+    }
+
     console.log('[O3 Chat] Saving session for userId:', userId, 'Title:', title);
 
     try {
-        const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+        const docData = {
             userId,
             title: title || 'New Chat',
             messages,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
-        });
-        console.log('[O3 Chat] Session saved:', docRef.id, 'for user:', userId);
+        };
+
+        console.log('[O3 Chat] Document data:', { userId, title, messageCount: messages.length });
+
+        const docRef = await addDoc(collection(db, COLLECTION_NAME), docData);
+        console.log('[O3 Chat] ✅ Session saved:', docRef.id, 'for user:', userId);
         return docRef.id;
     } catch (error) {
-        console.error('[O3 Chat] Error saving session:', error);
+        console.error('[O3 Chat] ❌ Error saving session:', error);
+        console.error('[O3 Chat] Error code:', error.code);
+        console.error('[O3 Chat] Error message:', error.message);
         throw error;
     }
 }
@@ -93,6 +105,12 @@ export async function loadO3ChatSessions(userId, maxSessions = 50) {
         return [];
     }
 
+    // Validate userId
+    if (!userId || userId === 'undefined' || userId === 'null') {
+        console.error('[O3 Chat] ERROR: Invalid userId for loading:', userId);
+        return [];
+    }
+
     console.log('[O3 Chat] Loading sessions for userId:', userId);
 
     try {
@@ -103,21 +121,38 @@ export async function loadO3ChatSessions(userId, maxSessions = 50) {
             limit(maxSessions)
         );
 
+        console.log('[O3 Chat] Executing query...');
         const querySnapshot = await getDocs(q);
         const sessions = [];
 
         querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            console.log('[O3 Chat] Found session:', doc.id, 'userId:', data.userId);
             sessions.push({
                 id: doc.id,
-                ...doc.data()
+                ...data
             });
         });
 
-        console.log('[O3 Chat] Loaded', sessions.length, 'sessions for user', userId);
+        console.log('[O3 Chat] ✅ Loaded', sessions.length, 'sessions for user', userId);
         return sessions;
     } catch (error) {
-        console.error('[O3 Chat] Error loading sessions:', error);
-        console.error('[O3 Chat] This might require a Firestore index. Check if you see a link in the error above.');
+        console.error('[O3 Chat] ❌ Error loading sessions:', error);
+        console.error('[O3 Chat] Error code:', error.code);
+        console.error('[O3 Chat] Error message:', error.message);
+
+        // Check for index requirement
+        if (error.message && error.message.includes('index')) {
+            console.error('[O3 Chat] 🔴 FIRESTORE INDEX REQUIRED!');
+            console.error('[O3 Chat] Look for a link in the error above to create the index.');
+            console.error('[O3 Chat] Or manually create index: Collection=o3_chat_history, Fields=userId(Asc)+updatedAt(Desc)');
+        }
+
+        // Check for permission errors
+        if (error.code === 'permission-denied') {
+            console.error('[O3 Chat] 🔴 PERMISSION DENIED! Check Firestore security rules.');
+        }
+
         return [];
     }
 }
