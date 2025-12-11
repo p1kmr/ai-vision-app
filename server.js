@@ -467,8 +467,11 @@ app.prepare().then(() => {
 
     // Reset model index for each new connection
     let currentModelIndex = 0;
+    // Gemini Live models for real-time audio - prioritize native audio models
     const modelAttempts = [
-      'models/gemini-2.0-flash-exp', // Experimental model (Realtime API typically requires exp models)
+      'models/gemini-2.5-flash-preview-native-audio-dialog', // Latest native audio model
+      'models/gemini-2.0-flash-live-001', // Gemini Live model
+      'models/gemini-2.0-flash-exp', // Experimental model (Realtime API)
       'models/gemini-2.0-flash-001', // Versioned GA model
       'models/gemini-2.0-flash', // GA model
       'models/gemini-1.5-flash-exp' // Fallback experimental model
