@@ -6,6 +6,10 @@ import MessageActions from './MessageActions';
 import MessageContent from './MessageContent';
 import ChatInput from './ChatInput';
 import CameraModal from './CameraModal';
+import ModelSelector from './ModelSelector';
+
+// Re-export ModelSelector and helpers for external use
+export { default as ModelSelector, MODEL_CONFIGS, getChatModels, getModelById, getProviderForModel } from './ModelSelector';
 
 export default function Chatbox({
     messages,
@@ -20,7 +24,12 @@ export default function Chatbox({
     onLoadSession,
     onNewSession,
     onDeleteSession,
-    showHistoryButton = false
+    showHistoryButton = false,
+    // Model selection props
+    currentModel = 'gemini-1.5-pro',
+    currentProvider = 'gemini',
+    onModelChange,
+    showModelSelector = false
 }) {
     const [inputText, setInputText] = useState('');
     const [attachedFiles, setAttachedFiles] = useState([]);
@@ -151,22 +160,40 @@ export default function Chatbox({
 
                 {/* Messages Area */}
                 <div className="flex-1 overflow-y-auto p-2 space-y-2 relative">
-                    {/* History Button - Top Right */}
-                    {showHistoryButton && (
-                        <button
-                            onClick={() => setShowHistory(!showHistory)}
-                            className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${showHistory
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-700/80 hover:bg-gray-600/80 text-gray-300'
-                                }`}
-                            title="Chat History"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            History
-                        </button>
-                    )}
+                    {/* Top Header Bar - Model Selector & History */}
+                    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 pb-2 mb-2 border-b border-gray-700/30 bg-gray-800/50 backdrop-blur-sm -mx-2 px-2 pt-1">
+                        {/* Model Selector - Top Left */}
+                        {showModelSelector && onModelChange && (
+                            <ModelSelector
+                                currentModel={currentModel}
+                                currentProvider={currentProvider}
+                                onModelChange={onModelChange}
+                                disabled={isLoading}
+                                showOnlyChat={true}
+                                compact={true}
+                            />
+                        )}
+
+                        {/* Spacer */}
+                        {!showModelSelector && <div />}
+
+                        {/* History Button - Top Right */}
+                        {showHistoryButton && (
+                            <button
+                                onClick={() => setShowHistory(!showHistory)}
+                                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-colors ${showHistory
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-700/80 hover:bg-gray-600/80 text-gray-300'
+                                    }`}
+                                title="Chat History"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                History
+                            </button>
+                        )}
+                    </div>
 
                     {messages.length === 0 ? (
                         <div className="text-center text-gray-400 mt-8">
@@ -278,6 +305,7 @@ export default function Chatbox({
                     attachedFiles={attachedFiles}
                     setAttachedFiles={setAttachedFiles}
                     isConnected={isConnected}
+                    isLoading={isLoading}
                     onSend={handleSend}
                     showHistoryButton={showHistoryButton}
                     onToggleHistory={() => setShowHistory(!showHistory)}

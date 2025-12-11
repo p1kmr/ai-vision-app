@@ -25,7 +25,7 @@ function LiveTalkPageContent() {
   const [error, setError] = useState('');
   const [sessionTime, setSessionTime] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState('gemini');
-  const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
+  const [selectedModel, setSelectedModel] = useState('gemini-1.5-pro');
   const [hasStarted, setHasStarted] = useState(false);
   const [userTranscription, setUserTranscription] = useState(''); // Store user's spoken words
   const [isUserSpeaking, setIsUserSpeaking] = useState(false); // Track if user is speaking (OpenAI VAD)
@@ -47,27 +47,27 @@ function LiveTalkPageContent() {
     { id: 'openai', name: 'OpenAI', description: 'OpenAI Realtime API' }
   ];
 
-  // Available models for Gemini
+  // Available models for Gemini (chat only - no voice)
   const geminiModels = [
     {
-      id: 'gemini-2.0-flash-exp',
-      name: 'Gemini 2.0 Flash (Experimental)',
-      description: 'Latest experimental model - Best for real-time audio',
-      features: 'Fast, multimodal audio processing',
+      id: 'gemini-1.5-pro',
+      name: 'Gemini 1.5 Pro',
+      description: 'Most capable - Advanced reasoning',
+      features: '1M context, vision + reasoning',
       recommended: true
     },
     {
-      id: 'gemini-1.5-flash-exp',
-      name: 'Gemini 1.5 Flash (Experimental)',
-      description: 'Stable experimental model - Good for audio tasks',
-      features: 'Reliable audio processing',
+      id: 'gemini-1.5-flash',
+      name: 'Gemini 1.5 Flash',
+      description: 'Fast & efficient',
+      features: 'Quick responses, vision support',
       recommended: false
     },
     {
-      id: 'gemini-1.5-pro-exp',
-      name: 'Gemini 1.5 Pro (Experimental)',
-      description: 'Advanced experimental model - Complex reasoning',
-      features: 'Advanced audio understanding',
+      id: 'gemini-2.0-flash-exp',
+      name: 'Gemini 2.0 Flash (Experimental)',
+      description: 'Latest experimental model',
+      features: 'Multimodal, fast',
       recommended: false
     }
   ];
@@ -295,15 +295,21 @@ function LiveTalkPageContent() {
   const handleStart = async () => {
     setHasStarted(true);
 
-    // For o3 model, use simple API calls (no WebSocket needed for chat-only)
-    if (selectedModel === 'o3') {
-      setIsChatMode(true); // Automatically switch to chat mode for o3
-      setIsConnected(true); // Ready immediately (no connection needed)
-      setAiResponse('Ready to chat with o3');
+    // Check if this is a chat-only model (not realtime)
+    // Realtime models: gpt-4o-realtime-preview, gpt-4o-mini-realtime-preview
+    const isRealtimeModel = selectedModel.includes('realtime');
+
+    // For non-realtime models (chat models), use simple API calls
+    // This includes: o3, gpt-4o, gpt-4o-mini, gemini-3-pro-preview, gemini-2.0-flash, etc.
+    if (!isRealtimeModel) {
+      setIsChatMode(true); // Automatically switch to chat mode
+      setIsConnected(true); // Ready immediately (no WebSocket needed)
+      setAiResponse(`Ready to chat with ${selectedModel}`);
       setTokenUsage(null); // Reset token usage for new session
       return;
     }
 
+    // For realtime models, initialize audio and WebSocket
     setAiResponse('Initializing microphone...');
     await initializeAudioAndAI();
   };
@@ -723,18 +729,24 @@ function LiveTalkPageContent() {
     // Show AI typing indicator
     setIsAiTyping(true);
 
-    // For o3 model, use simple API call (no WebSocket)
-    if (selectedModel === 'o3') {
+    // In chat mode, use API call for all models (including o3, GPT-4o, GPT-4o-mini, Gemini models)
+    // This avoids the need for WebSocket connection in chat mode
+    if (isChatMode) {
       try {
-        // Validate API key exists
-        const openaiApiKey = sessionStorage.getItem('openai_api_key');
-        if (!openaiApiKey) {
-          setError('OpenAI API key not configured. Please set it in Settings.');
+        // Get API key based on provider
+        const isGemini = selectedProvider === 'gemini' || selectedModel.includes('gemini');
+        const apiKey = isGemini
+          ? sessionStorage.getItem('gemini_api_key')
+          : sessionStorage.getItem('openai_api_key');
+
+        if (!apiKey) {
+          const providerName = isGemini ? 'Gemini' : 'OpenAI';
+          setError(`${providerName} API key not configured. Please set it in Settings.`);
           setIsAiTyping(false);
           return;
         }
 
-        // Build messages array for OpenAI API
+        // Build messages array for API
         const messages = updatedChatMessages.map((msg, index) => {
           const isCurrentMessage = index === updatedChatMessages.length - 1;
           const messageContent = [];
@@ -764,9 +776,7 @@ function LiveTalkPageContent() {
           };
         });
 
-        // Call API route for o3 reasoning - no client-side timeout, let it take as long as needed
-        // o3 can take several minutes depending on complexity and reasoning_effort
-
+        // Call unified API route for all models
         try {
           const response = await fetch('/api/chat', {
             method: 'POST',
@@ -774,12 +784,11 @@ function LiveTalkPageContent() {
             body: JSON.stringify({
               messages,
               model: selectedModel,
-              apiKey: openaiApiKey,
-              tokenLimit: tokenLimit
+              apiKey: apiKey,
+              tokenLimit: tokenLimit,
+              provider: selectedProvider
             })
           });
-
-
 
           // Check HTTP status
           if (!response.ok) {
@@ -944,16 +953,6 @@ function LiveTalkPageContent() {
                   </span>
                 )}
 
-                {/* Stop Audio button - only show in voice mode */}
-                {!isChatMode && selectedModel !== 'o3' && (
-                  <button
-                    onClick={handleStopStreaming}
-                    className="px-3 py-1.5 bg-orange-600/80 hover:bg-orange-600 text-white rounded-lg text-xs font-medium transition-all"
-                  >
-                    Stop Audio
-                  </button>
-                )}
-
                 {/* End Session button */}
                 <button
                   onClick={handleEndSession}
@@ -965,30 +964,7 @@ function LiveTalkPageContent() {
                   <span className="hidden sm:inline">End</span>
                 </button>
 
-                {/* Chat/Voice Toggle Button - Hidden for o3 (chat-only) */}
-                {selectedModel !== 'o3' && (
-                  <button
-                    onClick={() => setIsChatMode(!isChatMode)}
-                    className={`p-1.5 sm:p-2 rounded-lg transition-all ${isChatMode
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600/60'
-                      }`}
-                    title={isChatMode ? 'Switch to Voice Mode' : 'Switch to Chat Mode'}
-                  >
-                    {isChatMode ? (
-                      // Mic icon (for switching back to voice)
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                      </svg>
-                    ) : (
-                      // Chat icon
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm3.293 1.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L7.586 10 5.293 7.707a1 1 0 010-1.414zM11 12a1 1 0 100 2h3a1 1 0 100-2h-3z" />
-                      </svg>
-                    )}
-                  </button>
-                )}
-                {/* o3 Chat-Only Indicator */}
+                {/* Chat Mode Indicator */}
                 {selectedModel === 'o3' && (
                   <span className="text-xs text-blue-400 font-medium">Chat Mode</span>
                 )}
@@ -1021,7 +997,7 @@ function LiveTalkPageContent() {
                       if (provider.id === 'openai') {
                         setSelectedModel('gpt-4o-realtime-preview-2024-10-01');
                       } else {
-                        setSelectedModel('gemini-2.0-flash-exp');
+                        setSelectedModel('gemini-1.5-pro');
                       }
                     }}
                     className={`flex-1 p-3 sm:p-4 rounded-lg sm:rounded-xl border transition-all ${selectedProvider === provider.id
@@ -1152,6 +1128,14 @@ function LiveTalkPageContent() {
                 onNewSession={handleNewO3Session}
                 onDeleteSession={handleDeleteO3Session}
                 showHistoryButton={selectedModel === 'o3' && user}
+                // Model selection props
+                currentModel={selectedModel}
+                currentProvider={selectedProvider}
+                onModelChange={(modelId, provider) => {
+                  setSelectedModel(modelId);
+                  setSelectedProvider(provider);
+                }}
+                showModelSelector={true}
               />
             </div>
           ) : (

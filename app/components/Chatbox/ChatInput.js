@@ -12,7 +12,8 @@ export default function ChatInput({
     showHistoryButton = false,
     onToggleHistory,
     showHistory = false,
-    getFileIcon
+    getFileIcon,
+    isLoading = false
 }) {
     const fileInputRef = useRef(null);
     const textareaRef = useRef(null);
@@ -98,7 +99,8 @@ export default function ChatInput({
                 {/* Attachment button */}
                 <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex-shrink-0 w-10 h-10 bg-gray-700/60 hover:bg-gray-600/60 rounded-full flex items-center justify-center transition-colors border border-gray-600/50"
+                    disabled={isLoading}
+                    className="flex-shrink-0 w-10 h-10 bg-gray-700/60 hover:bg-gray-600/60 disabled:opacity-50 rounded-full flex items-center justify-center transition-colors border border-gray-600/50"
                     title="Attach files or take photo"
                 >
                     <span className="text-xl">📎</span>
@@ -123,7 +125,7 @@ export default function ChatInput({
                         onChange={(e) => setInputText(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder={isConnected ? "Type a message... (Shift+Enter for new line)" : "Not connected"}
-                        disabled={!isConnected}
+                        disabled={!isConnected || isLoading}
                         className="w-full bg-transparent text-white resize-none outline-none max-h-32 overflow-y-auto"
                         rows={1}
                     />
@@ -132,13 +134,17 @@ export default function ChatInput({
                 {/* Send button */}
                 <button
                     onClick={onSend}
-                    disabled={!isConnected || (!inputText.trim() && attachedFiles.length === 0)}
+                    disabled={!isConnected || isLoading || (!inputText.trim() && attachedFiles.length === 0)}
                     className="flex-shrink-0 w-10 h-10 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:opacity-50 rounded-full flex items-center justify-center transition-colors"
                     title="Send message"
                 >
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                    </svg>
+                    {isLoading ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                        </svg>
+                    )}
                 </button>
             </div>
 

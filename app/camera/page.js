@@ -18,7 +18,7 @@ function CameraPageContent() {
   const [error, setError] = useState('');
   const [sessionTime, setSessionTime] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState('gemini');
-  const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
+  const [selectedModel, setSelectedModel] = useState('gemini-1.5-pro');
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [hasStarted, setHasStarted] = useState(false); // Track if user has started the session
   const [userTranscription, setUserTranscription] = useState(''); // Store user's spoken words
@@ -33,31 +33,24 @@ function CameraPageContent() {
   // Available models for Gemini
   const geminiModels = [
     {
-      id: 'gemini-2.0-flash-exp',
-      name: 'Gemini 2.0 Flash (Experimental)',
-      description: 'Latest experimental model - Best for real-time vision + audio',
-      features: 'Fast, multimodal (vision, audio, video)',
+      id: 'gemini-1.5-pro',
+      name: 'Gemini 1.5 Pro',
+      description: 'Most capable - Advanced reasoning',
+      features: '1M context, vision + reasoning',
       recommended: true
     },
     {
-      id: 'gemini-1.5-flash-exp',
-      name: 'Gemini 1.5 Flash (Experimental)',
-      description: 'Stable experimental model - Good for real-time tasks',
-      features: 'Multimodal (vision, audio, video)',
+      id: 'gemini-1.5-flash',
+      name: 'Gemini 1.5 Flash',
+      description: 'Fast & efficient',
+      features: 'Quick responses, vision support',
       recommended: false
     },
     {
-      id: 'gemini-1.5-pro-exp',
-      name: 'Gemini 1.5 Pro (Experimental)',
-      description: 'Advanced experimental model - More complex reasoning',
-      features: 'Advanced multimodal processing',
-      recommended: false
-    },
-    {
-      id: 'gemini-2.0-flash-001',
-      name: 'Gemini 2.0 Flash (Versioned)',
-      description: 'Stable versioned model - May have limited availability',
-      features: 'Multimodal support',
+      id: 'gemini-2.0-flash-exp',
+      name: 'Gemini 2.0 Flash (Experimental)',
+      description: 'Latest experimental model',
+      features: 'Multimodal, fast',
       recommended: false
     }
   ];
@@ -330,9 +323,10 @@ function CameraPageContent() {
       );
     };
 
-    // Send frames every 1000ms (1 second) to reduce token usage
-    // Free tier: 1M tokens/min. Sending less frequently helps stay within limits
-    frameIntervalRef.current = setInterval(sendFrame, 1000);
+    // Send frames every 8000ms (8 seconds) to stay within 2025 free tier limits
+    // Free tier: ~8-10 requests/min max. Sending every 8s = ~7.5 frames/min (safe)
+    // Adjust this value based on your tier: Paid tier can use 1000ms (1 second)
+    frameIntervalRef.current = setInterval(sendFrame, 8000);
 
     // Audio capture - different methods for different providers
     const audioTracks = stream.getAudioTracks();
@@ -434,7 +428,7 @@ function CameraPageContent() {
   const handleStopStreaming = () => {
     // Stop camera, mic, and WebSocket
     cleanup();
-    
+
     // Explicitly stop all media tracks (video and audio)
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach(track => {
@@ -443,12 +437,12 @@ function CameraPageContent() {
       });
       mediaStreamRef.current = null;
     }
-    
+
     // Stop video element
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-    
+
     // Reset to model selection screen
     setHasStarted(false);
     setIsConnected(false);
@@ -496,144 +490,142 @@ function CameraPageContent() {
       {/* Top Overlay - AI Response */}
       <div className="absolute top-0 left-0 right-0 p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-b from-black/90 to-transparent">
         <div className="max-w-7xl mx-auto">
-        <div className="bg-black/60 backdrop-blur-md rounded-xl sm:rounded-2xl p-3 sm:p-4 lg:p-6 border border-white/10">
-          {/* Connection Status */}
-          {hasStarted && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2 sm:mb-3 gap-1 sm:gap-0">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
-                <span className="text-white/80 text-xs sm:text-sm font-medium">
-                  {isConnected ? 'AI Connected' : 'Connecting...'}
-                </span>
-                {selectedProvider === 'openai' && isUserSpeaking && (
-                  <span className="text-blue-400 text-xs sm:text-sm font-medium flex items-center gap-1">
-                    <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
-                    Speaking...
+          <div className="bg-black/60 backdrop-blur-md rounded-xl sm:rounded-2xl p-3 sm:p-4 lg:p-6 border border-white/10">
+            {/* Connection Status */}
+            {hasStarted && (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2 sm:mb-3 gap-1 sm:gap-0">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
+                  <span className="text-white/80 text-xs sm:text-sm font-medium">
+                    {isConnected ? 'AI Connected' : 'Connecting...'}
+                  </span>
+                  {selectedProvider === 'openai' && isUserSpeaking && (
+                    <span className="text-blue-400 text-xs sm:text-sm font-medium flex items-center gap-1">
+                      <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
+                      Speaking...
+                    </span>
+                  )}
+                </div>
+                {isConnected && (
+                  <span className="text-white/60 text-xs sm:text-sm pl-5 sm:pl-0">
+                    Session: {formatTime(sessionTime)}
                   </span>
                 )}
               </div>
-              {isConnected && (
-                <span className="text-white/60 text-xs sm:text-sm pl-5 sm:pl-0">
-                  Session: {formatTime(sessionTime)}
-                </span>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* Pre-Start Setup */}
-          {!hasStarted && (
-            <div className="mb-2 sm:mb-3">
-              <div className="flex items-center justify-between mb-1.5 sm:mb-2">
-                <h3 className="text-white text-base sm:text-lg font-semibold">AI Vision Setup</h3>
+            {/* Pre-Start Setup */}
+            {!hasStarted && (
+              <div className="mb-2 sm:mb-3">
+                <div className="flex items-center justify-between mb-1.5 sm:mb-2">
+                  <h3 className="text-white text-base sm:text-lg font-semibold">AI Vision Setup</h3>
+                </div>
+                <p className="text-white/60 text-xs sm:text-sm mb-2 sm:mb-3">
+                  Select your AI provider and model before starting
+                </p>
               </div>
-              <p className="text-white/60 text-xs sm:text-sm mb-2 sm:mb-3">
-                Select your AI provider and model before starting
-              </p>
-            </div>
-          )}
+            )}
 
-          {/* Provider Selection - Always visible before start */}
-          {!hasStarted && (
-            <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-black/80 rounded-lg sm:rounded-xl border border-white/20">
-              <div className="flex items-center justify-between mb-2 sm:mb-3">
-                <h3 className="text-white text-xs sm:text-sm font-semibold">Choose AI Provider</h3>
-              </div>
-              <div className="flex gap-2 mb-3">
-                {availableProviders.map((provider) => (
-                  <button
-                    key={provider.id}
-                    onClick={() => {
-                      setSelectedProvider(provider.id);
-                      // Set default model for the provider
-                      if (provider.id === 'openai') {
-                        setSelectedModel('gpt-4o-realtime-preview-2024-10-01');
-                      } else {
-                        setSelectedModel('gemini-2.0-flash-exp');
-                      }
-                    }}
-                    className={`flex-1 p-2.5 sm:p-3 rounded-md sm:rounded-lg border transition-all ${
-                      selectedProvider === provider.id
+            {/* Provider Selection - Always visible before start */}
+            {!hasStarted && (
+              <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-black/80 rounded-lg sm:rounded-xl border border-white/20">
+                <div className="flex items-center justify-between mb-2 sm:mb-3">
+                  <h3 className="text-white text-xs sm:text-sm font-semibold">Choose AI Provider</h3>
+                </div>
+                <div className="flex gap-2 mb-3">
+                  {availableProviders.map((provider) => (
+                    <button
+                      key={provider.id}
+                      onClick={() => {
+                        setSelectedProvider(provider.id);
+                        // Set default model for the provider
+                        if (provider.id === 'openai') {
+                          setSelectedModel('gpt-4o-realtime-preview-2024-10-01');
+                        } else {
+                          setSelectedModel('gemini-1.5-pro');
+                        }
+                      }}
+                      className={`flex-1 p-2.5 sm:p-3 rounded-md sm:rounded-lg border transition-all ${selectedProvider === provider.id
                         ? 'bg-gray-700/60 border-gray-600'
                         : 'bg-white/5 border-white/10 hover:bg-white/10 active:bg-white/15'
-                    }`}
-                  >
-                    <div className="text-white text-xs sm:text-sm font-medium">{provider.name}</div>
-                    <div className="text-white/60 text-[10px] sm:text-xs mt-0.5">{provider.description}</div>
-                  </button>
-                ))}
+                        }`}
+                    >
+                      <div className="text-white text-xs sm:text-sm font-medium">{provider.name}</div>
+                      <div className="text-white/60 text-[10px] sm:text-xs mt-0.5">{provider.description}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Model Selection - Always visible before start */}
-          {!hasStarted && (
-            <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-black/80 rounded-lg sm:rounded-xl border border-white/20">
-              <div className="flex items-center justify-between mb-2 sm:mb-3">
-                <h3 className="text-white text-xs sm:text-sm font-semibold">Choose AI Model</h3>
-              </div>
-              <div className="space-y-1.5 sm:space-y-2 max-h-48 sm:max-h-60 overflow-y-auto">
-                {availableModels.map((model) => (
-                  <button
-                    key={model.id}
-                    onClick={() => setSelectedModel(model.id)}
-                    className={`w-full text-left p-2.5 sm:p-3 rounded-md sm:rounded-lg border transition-all ${
-                      selectedModel === model.id
+            {/* Model Selection - Always visible before start */}
+            {!hasStarted && (
+              <div className="mb-3 sm:mb-4 p-2.5 sm:p-3 bg-black/80 rounded-lg sm:rounded-xl border border-white/20">
+                <div className="flex items-center justify-between mb-2 sm:mb-3">
+                  <h3 className="text-white text-xs sm:text-sm font-semibold">Choose AI Model</h3>
+                </div>
+                <div className="space-y-1.5 sm:space-y-2 max-h-48 sm:max-h-60 overflow-y-auto">
+                  {availableModels.map((model) => (
+                    <button
+                      key={model.id}
+                      onClick={() => setSelectedModel(model.id)}
+                      className={`w-full text-left p-2.5 sm:p-3 rounded-md sm:rounded-lg border transition-all ${selectedModel === model.id
                         ? 'bg-gray-700/60 border-gray-600'
                         : 'bg-white/5 border-white/10 hover:bg-white/10 active:bg-white/15'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                          <span className="text-white text-xs sm:text-sm font-medium">{model.name}</span>
-                          {model.recommended && (
-                            <span className="px-1.5 py-0.5 bg-gray-600/50 border border-gray-500/50 rounded text-gray-300 text-[10px] sm:text-xs whitespace-nowrap">
-                              Recommended
-                            </span>
-                          )}
+                        }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                            <span className="text-white text-xs sm:text-sm font-medium">{model.name}</span>
+                            {model.recommended && (
+                              <span className="px-1.5 py-0.5 bg-gray-600/50 border border-gray-500/50 rounded text-gray-300 text-[10px] sm:text-xs whitespace-nowrap">
+                                Recommended
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-white/60 text-[10px] sm:text-xs mt-0.5 sm:mt-1">{model.description}</p>
+                          <p className="text-white/40 text-[9px] sm:text-xs mt-0.5 sm:mt-1">{model.features}</p>
                         </div>
-                        <p className="text-white/60 text-[10px] sm:text-xs mt-0.5 sm:mt-1">{model.description}</p>
-                        <p className="text-white/40 text-[9px] sm:text-xs mt-0.5 sm:mt-1">{model.features}</p>
+                        {selectedModel === model.id && (
+                          <span className="text-gray-300 text-xs sm:text-sm font-bold flex-shrink-0">✓</span>
+                        )}
                       </div>
-                      {selectedModel === model.id && (
-                        <span className="text-gray-300 text-xs sm:text-sm font-bold flex-shrink-0">✓</span>
-                      )}
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-white/40 text-[10px] sm:text-xs mt-2 sm:mt-3 italic">
+                  Note: Experimental models work best with Realtime API
+                </p>
               </div>
-              <p className="text-white/40 text-[10px] sm:text-xs mt-2 sm:mt-3 italic">
-                Note: Experimental models work best with Realtime API
+            )}
+
+            {/* User Transcription - Show what user is saying */}
+            {hasStarted && userTranscription && (
+              <div className="mb-2 sm:mb-3 p-2 sm:p-2.5 bg-blue-500/20 border border-blue-500/50 rounded-md sm:rounded-lg">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-blue-300 text-[10px] sm:text-xs font-semibold">YOU SAID:</span>
+                </div>
+                <p className="text-blue-100 text-xs sm:text-sm leading-relaxed">
+                  {userTranscription}
+                </p>
+              </div>
+            )}
+
+            {/* AI Response */}
+            <div className="text-white">
+              <p className="text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed font-light">
+                {aiResponse}
               </p>
             </div>
-          )}
 
-          {/* User Transcription - Show what user is saying */}
-          {hasStarted && userTranscription && (
-            <div className="mb-2 sm:mb-3 p-2 sm:p-2.5 bg-blue-500/20 border border-blue-500/50 rounded-md sm:rounded-lg">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-blue-300 text-[10px] sm:text-xs font-semibold">YOU SAID:</span>
+            {/* Error Display */}
+            {error && (
+              <div className="mt-2 sm:mt-3 p-2 sm:p-2.5 bg-red-500/20 border border-red-500/50 rounded-md sm:rounded-lg">
+                <p className="text-red-300 text-xs sm:text-sm lg:text-base">{error}</p>
               </div>
-              <p className="text-blue-100 text-xs sm:text-sm leading-relaxed">
-                {userTranscription}
-              </p>
-            </div>
-          )}
-
-          {/* AI Response */}
-          <div className="text-white">
-            <p className="text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed font-light">
-              {aiResponse}
-            </p>
+            )}
           </div>
-
-          {/* Error Display */}
-          {error && (
-            <div className="mt-2 sm:mt-3 p-2 sm:p-2.5 bg-red-500/20 border border-red-500/50 rounded-md sm:rounded-lg">
-              <p className="text-red-300 text-xs sm:text-sm lg:text-base">{error}</p>
-            </div>
-          )}
-        </div>
         </div>
       </div>
 

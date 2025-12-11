@@ -15,10 +15,13 @@ const handle = app.getRequestHandler();
 // Store active connections
 const activeConnections = new Map();
 
-// Rate limiting for Gemini free tier
-// Free tier limits: 15 requests/minute, 1,500 requests/day, 1M tokens/minute
+// Rate limiting for Gemini free tier (2025 limits)
+// Free tier limits (Dec 2025): 
+// - Gemini 2.5 Flash: 10 RPM, 20-250 RPD (recently reduced)
+// - Gemini 2.0 Flash: ~10 RPM, ~100-250 RPD
+// - Gemini 3 Pro Preview: ~5 RPM, ~100 RPD (preview model - stricter limits)
 class GeminiRateLimiter {
-  constructor(requestsPerMinute = 15, requestsPerDay = 1500) {
+  constructor(requestsPerMinute = 8, requestsPerDay = 100) { // Conservative defaults
     this.requestsPerMinute = requestsPerMinute;
     this.requestsPerDay = requestsPerDay;
     this.minuteWindow = [];
@@ -626,7 +629,7 @@ app.prepare().then(() => {
           if (response.error) {
             const errorMessage = response.error.message || JSON.stringify(response.error);
             console.error(`Setup error: ${errorMessage}`);
-            
+
             // Check if it's a model-related error
             if (errorMessage.includes('not found') || errorMessage.includes('not supported') || errorMessage.includes('invalid model')) {
               currentModelIndex++;
@@ -756,7 +759,7 @@ app.prepare().then(() => {
           console.error('Gemini API quota exceeded. Please check your billing or wait for quota reset.');
           clientWs.send(JSON.stringify({
             error: 'API quota exceeded',
-            text: 'API quota exceeded. Free tier limits: 200 requests/day for Gemini 2.0 Flash. Please wait for daily quota reset at midnight Pacific time, or upgrade your plan in Google AI Studio.'
+            text: 'API quota exceeded. Free tier limits (2025): ~100 requests/day for Gemini. Please wait for daily quota reset at midnight Pacific time, or upgrade your plan in Google AI Studio.'
           }));
           // Don't auto-reconnect if quota is exceeded
           return;
@@ -772,7 +775,7 @@ app.prepare().then(() => {
           const status = geminiRateLimiter.getStatus();
           clientWs.send(JSON.stringify({
             error: 'Rate limit exceeded',
-            text: `Rate limit exceeded. Free tier: 15 requests/min. Backing off for ${Math.round(status.backoffDelay / 1000)}s... (Requests this minute: ${status.requestsLastMinute}/15, Today: ${status.requestsToday}/1500)`
+            text: `Rate limit exceeded. Free tier (2025): ~8 requests/min, ~100/day. Backing off for ${Math.round(status.backoffDelay / 1000)}s... (Requests this minute: ${status.requestsLastMinute}/8, Today: ${status.requestsToday}/100)`
           }));
 
           // Reconnect after backoff period
@@ -839,7 +842,26 @@ app.prepare().then(() => {
           try {
             const { GoogleGenerativeAI } = require('@google/generative-ai');
             const genAI = new GoogleGenerativeAI(geminiApiKey);
-            const currentModel = userSelectedModel || 'gemini-2.0-flash-exp';
+            // Use model from message if provided (for mid-chat model switching), otherwise use session model
+            const currentModel = data.model || userSelectedModel || 'gemini-3-pro-preview';
+
+            // Check if this is a Gemini 3 Pro model (supports thinking_level)
+            const isGemini3Pro = currentModel.includes('gemini-3-pro');
+
+            // Configure generation settings based on model
+            const generationConfig = {
+              temperature: 1.0, // Gemini 3 recommends 1.0 temperature
+              maxOutputTokens: isGemini3Pro ? 64000 : 8192, // Gemini 3 supports up to 64k output
+            };
+
+            // Add thinking configuration for Gemini 3 Pro
+            // thinking_level: 'low' (fast), 'high' (deep reasoning, default)
+            if (isGemini3Pro) {
+              generationConfig.thinkingConfig = {
+                thinkingLevel: data.thinkingLevel || 'high' // Default to high for best reasoning
+              };
+              console.log(`[Gemini 3 Pro] Using thinking_level: ${generationConfig.thinkingConfig.thinkingLevel}`);
+            }
 
             // Use client-sent conversation history if available (prevents history loss on reconnect)
             let geminiHistory = [];
@@ -882,8 +904,13 @@ app.prepare().then(() => {
 
             console.log(`[Gemini Chat] Sending to ${currentModel} (${geminiHistory.length + 1} messages in context)`);
 
+            // Create model with generation config
+            const model = genAI.getGenerativeModel({
+              model: currentModel,
+              generationConfig: generationConfig
+            });
+
             // Create chat session with history
-            const model = genAI.getGenerativeModel({ model: currentModel });
             const chat = model.startChat({
               history: geminiHistory
             });
